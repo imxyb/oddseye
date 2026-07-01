@@ -55,9 +55,17 @@ async def test_market_bars_respects_range_filter(tmp_path) -> None:
                 ),
                 MarketSnapshot(
                     market_id=market.id,
-                    ts=datetime.now(UTC) - timedelta(hours=1),
+                    ts=datetime.now(UTC) - timedelta(minutes=5),
                     outcome0_best_bid=Decimal("0.50"),
                     outcome0_best_ask=Decimal("0.52"),
+                ),
+                ApiUsageLedger(
+                    ts=datetime.now(UTC),
+                    provider="codex",
+                    kind="bars",
+                    request_count=3,
+                    status="success",
+                    duration_ms=40,
                 ),
             ]
         )
@@ -68,6 +76,9 @@ async def test_market_bars_respects_range_filter(tmp_path) -> None:
         assert response["source"] == "local_snapshots"
         assert len(response["bars"]) == 1
         assert response["bars"][0]["yes_bid"] == 0.5
+        assert response["freshness"]["last_snapshot_at"] is not None
+        assert response["freshness"]["is_stale"] is False
+        assert response["freshness"]["codex_usage_hint"]["today_requests"] == 3
     await sessionmaker.bind.dispose()
 
 

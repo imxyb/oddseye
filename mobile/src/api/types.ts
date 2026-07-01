@@ -91,7 +91,9 @@ export interface MarketBar {
 
 export interface MarketBarsResponse {
   market_id: string;
+  source?: "local_snapshots" | "codex" | string;
   bars: MarketBar[];
+  freshness?: Freshness | null;
 }
 
 export interface MarketDetail extends RadarMarket {

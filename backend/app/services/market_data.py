@@ -221,9 +221,17 @@ async def market_bars(
         .order_by(MarketSnapshot.ts.asc())
         .limit(limit)
     )
-    bars = _thin_bars([_snapshot_bar(snapshot) for snapshot in result.scalars()], resolution)
+    snapshots = list(result.scalars())
+    summary = await usage_summary(session)
+    bars = _thin_bars([_snapshot_bar(snapshot) for snapshot in snapshots], resolution)
     if bars:
-        return {"market_id": market_id, "bars": bars, "source": "local_snapshots"}
+        last_snapshot_at = max(snapshot.ts for snapshot in snapshots)
+        return {
+            "market_id": market_id,
+            "bars": bars,
+            "source": "local_snapshots",
+            "freshness": _freshness(last_snapshot_at, summary),
+        }
 
     market = await session.get(PredictionMarket, market_id)
     if market is not None and get_settings().codex_api_key:
@@ -242,10 +250,16 @@ async def market_bars(
                 "market_id": market_id,
                 "bars": [_codex_bar(bar) for bar in codex.get("bars") or []],
                 "source": "codex",
+                "freshness": _freshness(now, summary),
             }
         except Exception:
             pass
-    return {"market_id": market_id, "bars": [], "source": "local_snapshots"}
+    return {
+        "market_id": market_id,
+        "bars": [],
+        "source": "local_snapshots",
+        "freshness": _freshness(None, summary),
+    }
 
 
 def _snapshot_bar(snapshot: MarketSnapshot) -> dict[str, Any]:
