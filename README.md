@@ -123,6 +123,10 @@ category data, documented Radar sort dimensions, market detail quotes, chart
 bars, active signals, usage counters, paper performance metrics, and paper trade
 traceability in one repeatable command:
 
+The verifier creates tiny paper BUY orders through both the manual order API and
+the signal order API so V1 paper-trading flows are checked against production
+quotes. These orders are paper-only but they do update the paper account.
+
 ```bash
 docker compose -f docker-compose.prod.yml run --rm \
   -e ODDSEYE_VERIFY_PASSWORD='REPLACE_WITH_PASSWORD' \
@@ -168,6 +172,19 @@ curl -fsS "https://oddseye.fun/radar/markets?category=crypto&sort=closingSoon&li
 
 curl -fsS "https://oddseye.fun/signals?limit=3" \
   -H "Authorization: Bearer $TOKEN"
+
+curl -fsS -X POST "https://oddseye.fun/paper/orders" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"market_id":"REPLACE_WITH_MARKET_ID","side":"BUY","outcome_index":0,"limit_price":"REPLACE_WITH_ASK","quantity":"0.01"}'
+
+curl -fsS "https://oddseye.fun/signals?action=BUY&limit=5" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -fsS -X POST "https://oddseye.fun/signals/REPLACE_WITH_SIGNAL_ID/paper-order" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"notional":"0.01","limit_price":"REPLACE_WITH_EXECUTABLE_PRICE"}'
 
 curl -fsS "https://oddseye.fun/paper/performance" \
   -H "Authorization: Bearer $TOKEN"

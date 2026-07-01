@@ -6,6 +6,7 @@ import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal, InvalidOperation
 from io import StringIO
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -22,6 +23,10 @@ class VerificationCheck:
     name: str
     ok: bool
     detail: str
+
+
+VERIFY_PAPER_QUANTITY = Decimal("0.01")
+VERIFY_PAPER_NOTIONAL = Decimal("0.01")
 
 
 class ProductionClient(Protocol):
@@ -169,6 +174,33 @@ def verify_production(
     _require_market_detail(detail)
     checks.append(VerificationCheck("market_detail", True, "quote and liquidity returned"))
 
+    manual_outcome_index, manual_ask = _first_buy_quote(detail)
+    manual_order = production_client.request(
+        "POST",
+        "/paper/orders",
+        token=token,
+        json_body={
+            "market_id": first_market,
+            "side": "BUY",
+            "outcome_index": manual_outcome_index,
+            "limit_price": str(manual_ask),
+            "quantity": str(VERIFY_PAPER_QUANTITY),
+        },
+    )
+    _require_paper_buy_fill(
+        manual_order,
+        name="paper_manual_order",
+        reference_price=manual_ask,
+        expected_signal_id=None,
+    )
+    checks.append(
+        VerificationCheck(
+            "paper_manual_order",
+            True,
+            "manual BUY order filled at or above displayed ask",
+        )
+    )
+
     bars = production_client.request(
         "GET",
         f"/markets/{encoded_market_id}/bars?range=7d&resolution=hour1",
@@ -180,6 +212,37 @@ def verify_production(
     signals = production_client.request("GET", "/signals?limit=3", token=token)
     signal_count = _require_items(signals, "signals")
     checks.append(VerificationCheck("signals", True, f"{signal_count} signals returned"))
+
+    buy_signals = production_client.request("GET", "/signals?action=BUY&limit=5", token=token)
+    buy_signal = _first_orderable_buy_signal(buy_signals)
+    signal_id = buy_signal["signal_id"]
+    signal_limit_price = _decimal_payload_value(
+        buy_signal.get("executable_price"),
+        "paper_signal_order",
+        "signal executable_price",
+    )
+    signal_order = production_client.request(
+        "POST",
+        f"/signals/{quote(signal_id, safe='')}/paper-order",
+        token=token,
+        json_body={
+            "notional": str(VERIFY_PAPER_NOTIONAL),
+            "limit_price": str(signal_limit_price),
+        },
+    )
+    _require_paper_buy_fill(
+        signal_order,
+        name="paper_signal_order",
+        reference_price=signal_limit_price,
+        expected_signal_id=signal_id,
+    )
+    checks.append(
+        VerificationCheck(
+            "paper_signal_order",
+            True,
+            "BUY signal paper order filled at or above executable price",
+        )
+    )
 
     usage = production_client.request("GET", "/settings/usage", token=token)
     _require("today_requests" in usage, "usage", "missing today_requests")
@@ -270,6 +333,64 @@ def _require_market_detail(payload: dict[str, Any]) -> None:
     _require(payload.get("liquidity_usd") is not None, "market_detail", "missing liquidity")
 
 
+def _first_buy_quote(payload: dict[str, Any]) -> tuple[int, Decimal]:
+    outcomes = payload.get("outcomes")
+    _require(isinstance(outcomes, list), "paper_manual_order", "missing outcomes")
+    for outcome in outcomes:
+        if not isinstance(outcome, dict):
+            continue
+        if outcome.get("ask") is None:
+            continue
+        index = outcome.get("index")
+        _require(isinstance(index, int) and not isinstance(index, bool), "paper_manual_order", "missing outcome index")
+        ask = _decimal_payload_value(outcome.get("ask"), "paper_manual_order", "outcome ask")
+        return index, ask
+    raise ProductionVerificationError("paper_manual_order: no BUY ask quote available")
+
+
+def _require_paper_buy_fill(
+    payload: dict[str, Any],
+    *,
+    name: str,
+    reference_price: Decimal,
+    expected_signal_id: str | None,
+) -> None:
+    order = payload.get("order")
+    fill = payload.get("fill")
+    position = payload.get("position")
+    _require(isinstance(order, dict), name, "missing order")
+    _require(isinstance(fill, dict), name, "missing fill")
+    _require(isinstance(position, dict), name, "missing position")
+    _require(order.get("status") == "filled", name, "order was not filled")
+    if expected_signal_id is None:
+        _require(not order.get("signal_id"), name, "manual order unexpectedly has signal_id")
+    else:
+        _require(order.get("signal_id") == expected_signal_id, name, "order signal_id mismatch")
+    _require(fill.get("snapshot_id") is not None, name, "fill missing snapshot_id")
+    fill_price = _decimal_payload_value(fill.get("price"), name, "fill price")
+    _require(fill_price >= reference_price, name, "BUY fill price is below conservative reference price")
+
+
+def _first_orderable_buy_signal(payload: dict[str, Any]) -> dict[str, Any]:
+    items = payload.get("items")
+    _require(isinstance(items, list), "paper_signal_order", "missing BUY signal items")
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        signal_id = item.get("signal_id")
+        action = item.get("action")
+        side = item.get("side")
+        if (
+            isinstance(signal_id, str)
+            and signal_id
+            and action == "BUY"
+            and side in {"YES", "NO"}
+            and item.get("executable_price") is not None
+        ):
+            return item
+    raise ProductionVerificationError("paper_signal_order: no orderable BUY signal returned")
+
+
 def _require_bars(payload: dict[str, Any]) -> int:
     bars = payload.get("bars")
     _require(isinstance(bars, list), "market_bars", "missing bars list")
@@ -312,6 +433,15 @@ def _numeric_field(item: dict[str, Any], field: str, name: str, index: int) -> f
     value = item.get(field)
     _require(isinstance(value, int | float) and not isinstance(value, bool), name, f"row {index} missing {field}")
     return float(value)
+
+
+def _decimal_payload_value(value: Any, name: str, label: str) -> Decimal:
+    if isinstance(value, bool) or value is None:
+        raise ProductionVerificationError(f"{name}: missing {label}")
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, ValueError) as exc:
+        raise ProductionVerificationError(f"{name}: invalid {label}") from exc
 
 
 def _require_trade_traceability(csv_text: str) -> int:

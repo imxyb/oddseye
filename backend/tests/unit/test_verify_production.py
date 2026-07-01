@@ -80,14 +80,46 @@ def _successful_responses() -> dict[tuple[str, str], dict]:
             "GET",
             "/markets/market-1",
         ): {
-            "outcomes": [{"bid": 0.48, "ask": 0.5, "spread": 0.02}],
+            "market_id": "market-1",
+            "outcomes": [{"index": 0, "bid": 0.48, "ask": 0.5, "spread": 0.02}],
             "liquidity_usd": 25000,
+        },
+        ("POST", "/paper/orders"): {
+            "order": {
+                "order_id": "manual-order",
+                "market_id": "market-1",
+                "signal_id": None,
+                "status": "filled",
+            },
+            "fill": {"fill_id": "manual-fill", "price": 0.50125, "snapshot_id": 10},
+            "position": {"position_id": "manual-position"},
         },
         (
             "GET",
             "/markets/market-1/bars?range=7d&resolution=hour1",
         ): {"bars": [{"t": 1, "yes_bid": 0.48, "yes_ask": 0.5}]},
         ("GET", "/signals?limit=3"): {"items": [{"signal_id": "signal-1"}]},
+        ("GET", "/signals?action=BUY&limit=5"): {
+            "items": [
+                {
+                    "signal_id": "signal-buy",
+                    "market_id": "market-1",
+                    "action": "BUY",
+                    "side": "YES",
+                    "executable_price": 0.5,
+                }
+            ],
+        },
+        ("POST", "/signals/signal-buy/paper-order"): {
+            "order": {
+                "order_id": "signal-order",
+                "market_id": "market-1",
+                "signal_id": "signal-buy",
+                "status": "filled",
+            },
+            "fill": {"fill_id": "signal-fill", "price": 0.50125, "snapshot_id": 11},
+            "position": {"position_id": "signal-position"},
+        },
         ("GET", "/settings/usage"): {"today_requests": 3, "jobs": {"signal_seconds": 300}},
         ("GET", "/paper/performance"): {
             "cash": 1000,
@@ -133,8 +165,10 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "crypto_markets",
         "macro_markets",
         "market_detail",
+        "paper_manual_order",
         "market_bars",
         "signals",
+        "paper_signal_order",
         "usage",
         "paper_performance",
         "paper_trade_traceability",
@@ -151,8 +185,27 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/radar/markets?category=crypto&limit=3", "token-123", None),
         ("GET", "/radar/markets?category=economics&limit=3", "token-123", None),
         ("GET", "/markets/market-1", "token-123", None),
+        (
+            "POST",
+            "/paper/orders",
+            "token-123",
+            {
+                "market_id": "market-1",
+                "side": "BUY",
+                "outcome_index": 0,
+                "limit_price": "0.5",
+                "quantity": "0.01",
+            },
+        ),
         ("GET", "/markets/market-1/bars?range=7d&resolution=hour1", "token-123", None),
         ("GET", "/signals?limit=3", "token-123", None),
+        ("GET", "/signals?action=BUY&limit=5", "token-123", None),
+        (
+            "POST",
+            "/signals/signal-buy/paper-order",
+            "token-123",
+            {"notional": "0.01", "limit_price": "0.5"},
+        ),
         ("GET", "/settings/usage", "token-123", None),
         ("GET", "/paper/performance", "token-123", None),
         ("GET", "/paper/trades.csv", "token-123", None),
@@ -184,6 +237,47 @@ def test_verify_production_rejects_unsorted_radar_dimension() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="radar_sort_volume"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_non_conservative_manual_buy_fill() -> None:
+    responses = _successful_responses()
+    responses[("POST", "/paper/orders")] = {
+        "order": {"order_id": "manual-order", "market_id": "market-1", "status": "filled"},
+        "fill": {"fill_id": "manual-fill", "price": 0.49, "snapshot_id": 10},
+        "position": {"position_id": "manual-position"},
+    }
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="paper_manual_order"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_unfilled_signal_paper_order() -> None:
+    responses = _successful_responses()
+    responses[("POST", "/signals/signal-buy/paper-order")] = {
+        "order": {
+            "order_id": "signal-order",
+            "market_id": "market-1",
+            "signal_id": "signal-buy",
+            "status": "open",
+        },
+        "fill": None,
+        "position": None,
+    }
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="paper_signal_order"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",
