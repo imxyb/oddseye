@@ -32,6 +32,13 @@ export interface SignalSummary {
   confidence?: number | null;
 }
 
+export interface QualityExplanation {
+  components: Record<string, number>;
+  reason_codes: string[];
+  risk_flags: string[];
+  passes_paper_gate: boolean;
+}
+
 export interface RadarMarket {
   market_id: string;
   event_id?: string;
@@ -46,6 +53,7 @@ export interface RadarMarket {
   volume_usd_24h?: number | null;
   open_interest_usd?: number | null;
   market_quality_score?: number | null;
+  quality?: QualityExplanation | null;
   latest_signal?: SignalSummary | null;
   risk_flags?: string[];
 }

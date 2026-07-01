@@ -100,6 +100,21 @@ paper:
                 volume_usd_24h=Decimal("5000"),
                 trades_24h=Decimal("100"),
                 market_quality_score=Decimal("80"),
+                raw_json={
+                    "quality": {
+                        "components": {
+                            "liquidity": 75,
+                            "spread": 100,
+                            "resolution_clarity": 80,
+                            "modelability": 90,
+                            "time": 100,
+                            "activity": 60,
+                        },
+                        "reason_codes": ["LIQUIDITY_OK", "SPREAD_OK"],
+                        "risk_flags": [],
+                        "passes_paper_gate": True,
+                    }
+                },
             )
         )
         await session.commit()
@@ -118,12 +133,24 @@ paper:
         radar = await client.get("/radar/markets", headers=headers)
         assert radar.status_code == 200
         assert "freshness" in radar.json()
+        radar_item = radar.json()["items"][0]
+        assert radar_item["quality"]["components"]["modelability"] == 90
+        assert radar_item["quality"]["reason_codes"] == ["LIQUIDITY_OK", "SPREAD_OK"]
+        assert radar_item["quality"]["risk_flags"] == []
+        assert radar_item["quality"]["passes_paper_gate"] is True
         filtered = await client.get(
             "/radar/markets?minVolume=4000&minLiquidity=20000&maxSpread=0.03&closesWithinHours=1000",
             headers=headers,
         )
         assert filtered.status_code == 200
         assert filtered.json()["total"] == 1
+
+        detail = await client.get(
+            "/markets/00000000-0000-0000-0000-000000000001",
+            headers=headers,
+        )
+        assert detail.status_code == 200
+        assert detail.json()["quality"]["components"]["spread"] == 100
 
         settings_response = await client.get("/settings/usage", headers=headers)
         assert settings_response.status_code == 200

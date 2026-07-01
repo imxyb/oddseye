@@ -314,9 +314,30 @@ def _radar_item(
         "volume_usd_24h": _decimal(snapshot.volume_usd_24h if snapshot else None),
         "open_interest_usd": _decimal(snapshot.open_interest_usd if snapshot else None),
         "market_quality_score": _decimal(snapshot.market_quality_score if snapshot else None),
+        "quality": _quality_json(snapshot),
+        "risk_flags": _quality_risk_flags(snapshot),
         "latest_signal": _signal_json(signal) if signal else None,
         "last_snapshot_at": snapshot.ts.isoformat() if snapshot else None,
     }
+
+
+def _quality_json(snapshot: MarketSnapshot | None) -> dict[str, Any] | None:
+    if snapshot is None:
+        return None
+    quality = (snapshot.raw_json or {}).get("quality")
+    if not isinstance(quality, dict):
+        return None
+    return {
+        "components": quality.get("components") or {},
+        "reason_codes": quality.get("reason_codes") or [],
+        "risk_flags": quality.get("risk_flags") or [],
+        "passes_paper_gate": bool(quality.get("passes_paper_gate")),
+    }
+
+
+def _quality_risk_flags(snapshot: MarketSnapshot | None) -> list[str]:
+    quality = _quality_json(snapshot)
+    return list(quality.get("risk_flags") or []) if quality else []
 
 
 def _signal_json(signal: ModelSignal) -> dict[str, Any]:

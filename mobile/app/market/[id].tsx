@@ -131,6 +131,32 @@ export default function MarketDetailScreen() {
 
         <RiskFlags market={market} />
 
+        {market.quality ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Quality</Text>
+            <View style={styles.qualityGrid}>
+              {Object.entries(market.quality.components).map(([key, value]) => (
+                <View key={key} style={styles.qualityMetric}>
+                  <Text style={styles.metricLabel}>{key.replace(/_/g, " ")}</Text>
+                  <Text style={styles.metricValue}>{Math.round(value)}</Text>
+                </View>
+              ))}
+            </View>
+            <View style={styles.reasonRow}>
+              {market.quality.reason_codes.map((code) => (
+                <Text key={code} style={styles.reasonPill}>
+                  {code.replace(/_/g, " ")}
+                </Text>
+              ))}
+              {market.quality.risk_flags.map((flag) => (
+                <Text key={flag} style={[styles.reasonPill, styles.riskPill]}>
+                  {flag.replace(/_/g, " ")}
+                </Text>
+              ))}
+            </View>
+          </View>
+        ) : null}
+
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Probability</Text>
           {barsQuery.isLoading ? (
@@ -258,6 +284,42 @@ const styles = StyleSheet.create({
     color: colors.text,
     fontSize: 20,
     fontWeight: "900",
+  },
+  qualityGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  qualityMetric: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexBasis: "31%",
+    flexGrow: 1,
+    gap: 4,
+    minWidth: 104,
+    padding: spacing.md,
+  },
+  reasonRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  reasonPill: {
+    backgroundColor: colors.successSoft,
+    borderRadius: 999,
+    color: colors.success,
+    fontSize: 11,
+    fontWeight: "800",
+    overflow: "hidden",
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    textTransform: "uppercase",
+  },
+  riskPill: {
+    backgroundColor: colors.warningSoft,
+    color: colors.warning,
   },
   chartLoading: {
     alignItems: "center",
