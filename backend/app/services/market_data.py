@@ -21,6 +21,31 @@ from app.db.models import (
 )
 from app.services.usage import usage_hint_from_summary, usage_summary
 
+CATEGORY_ALIASES = {
+    "economics": {
+        "economics",
+        "economy",
+        "macro",
+        "fed",
+        "cpi",
+        "fomc",
+        "inflation",
+        "unemployment",
+        "rates",
+    },
+    "macro": {
+        "economics",
+        "economy",
+        "macro",
+        "fed",
+        "cpi",
+        "fomc",
+        "inflation",
+        "unemployment",
+        "rates",
+    },
+}
+
 
 async def latest_snapshot_for_market(
     session: AsyncSession, market_id: str
@@ -75,7 +100,7 @@ async def radar_markets(
     items = []
     newest_snapshot: datetime | None = None
     for market, event, venue in rows.all():
-        if category and category.lower() not in [c.lower() for c in (event.categories or [])]:
+        if category and not _category_matches(category, event.categories or []):
             continue
         if protocol and market.protocol.upper() != protocol.upper():
             continue
@@ -338,6 +363,13 @@ def _quality_json(snapshot: MarketSnapshot | None) -> dict[str, Any] | None:
 def _quality_risk_flags(snapshot: MarketSnapshot | None) -> list[str]:
     quality = _quality_json(snapshot)
     return list(quality.get("risk_flags") or []) if quality else []
+
+
+def _category_matches(category: str, categories: list) -> bool:
+    wanted = category.lower()
+    aliases = CATEGORY_ALIASES.get(wanted, {wanted})
+    present = {str(item).lower() for item in categories}
+    return bool(aliases.intersection(present))
 
 
 def _signal_json(signal: ModelSignal) -> dict[str, Any]:
