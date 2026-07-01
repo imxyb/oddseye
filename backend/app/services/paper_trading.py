@@ -132,8 +132,16 @@ async def list_positions(session: AsyncSession) -> list[dict[str, Any]]:
 
 async def performance(session: AsyncSession) -> dict[str, Any]:
     account = await ensure_default_paper_account(session)
-    positions = (await session.execute(select(PaperPosition))).scalars().all()
-    fills = (await session.execute(select(PaperFill))).scalars().all()
+    positions = (
+        await session.execute(select(PaperPosition).where(PaperPosition.account_id == account.id))
+    ).scalars().all()
+    fills = (
+        await session.execute(
+            select(PaperFill)
+            .where(PaperFill.account_id == account.id)
+            .order_by(PaperFill.created_at.asc())
+        )
+    ).scalars().all()
     realized = sum((position.realized_pnl for position in positions), Decimal("0"))
     unrealized = sum((position.unrealized_pnl for position in positions), Decimal("0"))
     position_value = sum(
@@ -143,7 +151,7 @@ async def performance(session: AsyncSession) -> dict[str, Any]:
     equity = account.cash + position_value
     closed_positions = [position for position in positions if position.status == "closed"]
     wins = [position for position in closed_positions if position.realized_pnl > 0]
-    max_drawdown = _drawdown_from_starting_cash(account.starting_cash, equity)
+    max_drawdown = _historical_max_drawdown(account.starting_cash, fills, equity)
     return {
         "equity": float(equity),
         "cash": float(account.cash),
@@ -267,6 +275,69 @@ def _drawdown_from_starting_cash(starting_cash: Decimal, equity: Decimal) -> Dec
     if starting_cash <= 0 or equity >= starting_cash:
         return Decimal("0")
     return (starting_cash - equity) / starting_cash
+
+
+def _historical_max_drawdown(
+    starting_cash: Decimal,
+    fills: list[PaperFill],
+    current_equity: Decimal,
+) -> Decimal:
+    if starting_cash <= 0:
+        return Decimal("0")
+
+    cash = starting_cash
+    peak = starting_cash
+    max_drawdown = Decimal("0")
+    quantities: dict[tuple[str, int], Decimal] = {}
+    marks: dict[tuple[str, int], Decimal] = {}
+
+    for fill in fills:
+        key = (fill.market_id, fill.outcome_index)
+        side = fill.side.upper()
+        if side == "BUY":
+            cash -= fill.notional + fill.fee
+            quantities[key] = quantities.get(key, Decimal("0")) + fill.quantity
+        elif side in {"SELL", "EXIT"}:
+            cash += fill.notional - fill.fee
+            quantities[key] = max(
+                quantities.get(key, Decimal("0")) - fill.quantity,
+                Decimal("0"),
+            )
+        else:
+            continue
+        marks[key] = fill.price
+        peak, max_drawdown = _update_drawdown(
+            peak,
+            _historical_equity(cash, quantities, marks),
+            max_drawdown,
+        )
+
+    _peak, max_drawdown = _update_drawdown(peak, current_equity, max_drawdown)
+    return max(max_drawdown, _drawdown_from_starting_cash(starting_cash, current_equity))
+
+
+def _historical_equity(
+    cash: Decimal,
+    quantities: dict[tuple[str, int], Decimal],
+    marks: dict[tuple[str, int], Decimal],
+) -> Decimal:
+    position_value = sum(
+        (quantity * marks.get(key, Decimal("0")) for key, quantity in quantities.items()),
+        Decimal("0"),
+    )
+    return cash + position_value
+
+
+def _update_drawdown(
+    peak: Decimal,
+    equity: Decimal,
+    max_drawdown: Decimal,
+) -> tuple[Decimal, Decimal]:
+    if equity > peak:
+        return equity, max_drawdown
+    if peak <= 0:
+        return peak, max_drawdown
+    return peak, max(max_drawdown, (peak - equity) / peak)
 
 
 async def mark_positions(session: AsyncSession) -> int:
