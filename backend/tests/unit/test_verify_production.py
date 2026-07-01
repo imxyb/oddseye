@@ -31,6 +31,17 @@ def _successful_responses() -> dict[tuple[str, str], dict]:
         ("GET", "/health"): {"status": "ok"},
         ("POST", "/auth/login"): {"access_token": "token-123"},
         ("GET", "/radar/markets?limit=3"): {"items": [{"market_id": "market-1"}]},
+        (
+            "GET",
+            "/markets/market-1",
+        ): {
+            "outcomes": [{"bid": 0.48, "ask": 0.5, "spread": 0.02}],
+            "liquidity_usd": 25000,
+        },
+        (
+            "GET",
+            "/markets/market-1/bars?range=7d&resolution=hour1",
+        ): {"bars": [{"t": 1, "yes_bid": 0.48, "yes_ask": 0.5}]},
         ("GET", "/signals?limit=3"): {"items": [{"signal_id": "signal-1"}]},
         ("GET", "/settings/usage"): {"today_requests": 3, "jobs": {"signal_seconds": 300}},
         ("GET", "/paper/performance"): {
@@ -57,6 +68,8 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "health",
         "login",
         "radar",
+        "market_detail",
+        "market_bars",
         "signals",
         "usage",
         "paper_performance",
@@ -66,6 +79,8 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/health", None, None),
         ("POST", "/auth/login", None, {"username": "admin", "password": "secret"}),
         ("GET", "/radar/markets?limit=3", "token-123", None),
+        ("GET", "/markets/market-1", "token-123", None),
+        ("GET", "/markets/market-1/bars?range=7d&resolution=hour1", "token-123", None),
         ("GET", "/signals?limit=3", "token-123", None),
         ("GET", "/settings/usage", "token-123", None),
         ("GET", "/paper/performance", "token-123", None),

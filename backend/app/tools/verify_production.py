@@ -5,6 +5,7 @@ import os
 import sys
 from dataclasses import dataclass
 from typing import Any, Protocol
+from urllib.parse import quote
 
 import httpx
 
@@ -95,6 +96,20 @@ def verify_production(
     radar_count = _require_items(radar, "radar")
     checks.append(VerificationCheck("radar", True, f"{radar_count} markets returned"))
 
+    first_market = _first_market_id(radar)
+    encoded_market_id = quote(first_market, safe="")
+    detail = production_client.request("GET", f"/markets/{encoded_market_id}", token=token)
+    _require_market_detail(detail)
+    checks.append(VerificationCheck("market_detail", True, "quote and liquidity returned"))
+
+    bars = production_client.request(
+        "GET",
+        f"/markets/{encoded_market_id}/bars?range=7d&resolution=hour1",
+        token=token,
+    )
+    bar_count = _require_bars(bars)
+    checks.append(VerificationCheck("market_bars", True, f"{bar_count} bars returned"))
+
     signals = production_client.request("GET", "/signals?limit=3", token=token)
     signal_count = _require_items(signals, "signals")
     checks.append(VerificationCheck("signals", True, f"{signal_count} signals returned"))
@@ -154,6 +169,35 @@ def _require_items(payload: dict[str, Any], name: str) -> int:
     _require(isinstance(items, list), name, "missing items list")
     _require(len(items) > 0, name, "expected live items")
     return len(items)
+
+
+def _first_market_id(payload: dict[str, Any]) -> str:
+    items = payload.get("items")
+    _require(isinstance(items, list) and len(items) > 0, "radar", "expected live items")
+    market_id = items[0].get("market_id") if isinstance(items[0], dict) else None
+    _require(isinstance(market_id, str) and market_id, "radar", "missing market_id")
+    return market_id
+
+
+def _require_market_detail(payload: dict[str, Any]) -> None:
+    outcomes = payload.get("outcomes")
+    _require(isinstance(outcomes, list) and len(outcomes) > 0, "market_detail", "missing outcomes")
+    has_quote = any(
+        isinstance(outcome, dict)
+        and outcome.get("bid") is not None
+        and outcome.get("ask") is not None
+        and outcome.get("spread") is not None
+        for outcome in outcomes
+    )
+    _require(has_quote, "market_detail", "missing bid/ask/spread quote")
+    _require(payload.get("liquidity_usd") is not None, "market_detail", "missing liquidity")
+
+
+def _require_bars(payload: dict[str, Any]) -> int:
+    bars = payload.get("bars")
+    _require(isinstance(bars, list), "market_bars", "missing bars list")
+    _require(len(bars) > 0, "market_bars", "expected chart bars")
+    return len(bars)
 
 
 if __name__ == "__main__":
