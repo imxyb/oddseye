@@ -36,6 +36,7 @@ QUALITY_COMPONENT_NAMES = (
     "activity",
 )
 SYNC_MARKET_JOB_NAMES = {"sync_hot_markets", "sync_warm_markets", "sync_cold_markets"}
+CRYPTO_THRESHOLD_ASSETS = {"BTC", "ETH", "SOL"}
 
 
 class ProductionClient(Protocol):
@@ -230,6 +231,16 @@ def verify_production(
     signals = production_client.request("GET", "/signals?limit=3", token=token)
     signal_count = _require_items(signals, "signals")
     checks.append(VerificationCheck("signals", True, f"{signal_count} signals returned"))
+
+    crypto_signals = production_client.request("GET", "/signals?category=crypto&limit=20", token=token)
+    crypto_signal = _require_crypto_threshold_signal(crypto_signals)
+    checks.append(
+        VerificationCheck(
+            "crypto_threshold_signal",
+            True,
+            f"{crypto_signal['strategy_code']} signal returned for crypto threshold market",
+        )
+    )
 
     buy_signals = production_client.request("GET", "/signals?action=BUY&limit=5", token=token)
     buy_signal = _first_orderable_buy_signal(buy_signals)
@@ -455,6 +466,41 @@ def _first_orderable_buy_signal(payload: dict[str, Any]) -> dict[str, Any]:
         ):
             return item
     raise ProductionVerificationError("paper_signal_order: no orderable BUY signal returned")
+
+
+def _require_crypto_threshold_signal(payload: dict[str, Any]) -> dict[str, Any]:
+    items = payload.get("items")
+    _require(isinstance(items, list), "crypto_threshold_signal", "missing crypto signal items")
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("strategy_code") != "crypto_threshold_v1":
+            continue
+        question = item.get("question")
+        category = item.get("category")
+        action = item.get("action")
+        _require(isinstance(question, str) and question, "crypto_threshold_signal", "signal missing question")
+        _require(category == "crypto", "crypto_threshold_signal", "signal category is not crypto")
+        _require(action in {"BUY", "OBSERVE", "IGNORE", "HOLD", "EXIT"}, "crypto_threshold_signal", "invalid action")
+        _require(
+            _looks_like_crypto_threshold_question(question),
+            "crypto_threshold_signal",
+            "signal question is not a supported crypto threshold market",
+        )
+        signal_id = item.get("signal_id")
+        _require(isinstance(signal_id, str) and signal_id, "crypto_threshold_signal", "signal missing signal_id")
+        market_id = item.get("market_id")
+        _require(isinstance(market_id, str) and market_id, "crypto_threshold_signal", "signal missing market_id")
+        return item
+    raise ProductionVerificationError("crypto_threshold_signal: no crypto_threshold_v1 signal returned")
+
+
+def _looks_like_crypto_threshold_question(question: str) -> bool:
+    upper_question = question.upper()
+    has_asset = any(asset in upper_question for asset in CRYPTO_THRESHOLD_ASSETS)
+    has_direction = any(word in upper_question for word in ("ABOVE", "BELOW", "OVER", "UNDER", ">"))
+    has_number = any(character.isdigit() for character in upper_question)
+    return has_asset and has_direction and has_number
 
 
 def _require_bars(payload: dict[str, Any]) -> int:

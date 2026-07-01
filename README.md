@@ -120,9 +120,9 @@ printf 'EXPO_PUBLIC_API_BASE_URL=https://oddseye.fun\n' > .env
 After migrations and service startup, run the production verifier from the built
 API image. It checks health, login, Radar live data, Crypto and Macro/Economics
 category data, documented Radar sort dimensions, market detail quotes, quality
-score explanations, chart bars, active signals, usage counters, recent ingestion
-job runs, paper performance metrics, and paper trade traceability in one
-repeatable command:
+score explanations, chart bars, active `crypto_threshold_v1` crypto threshold
+signals, usage counters, recent ingestion job runs, paper performance metrics,
+and paper trade traceability in one repeatable command:
 
 The verifier creates tiny paper BUY orders through both the manual order API and
 the signal order API so V1 paper-trading flows are checked against production
@@ -184,6 +184,10 @@ curl -fsS "https://oddseye.fun/markets/$MARKET_ID" \
 curl -fsS "https://oddseye.fun/signals?limit=3" \
   -H "Authorization: Bearer $TOKEN"
 
+curl -fsS "https://oddseye.fun/signals?category=crypto&limit=20" \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -c 'import json,sys; items=json.load(sys.stdin)["items"]; assert any(i.get("strategy_code")=="crypto_threshold_v1" and i.get("category")=="crypto" and any(asset in i.get("question","").upper() for asset in ("BTC","ETH","SOL")) for i in items); print("crypto threshold signal ok")'
+
 curl -fsS -X POST "https://oddseye.fun/paper/orders" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
@@ -219,9 +223,8 @@ Expected production state:
   real Codex data, not `seed-*` demo rows.
 - Market detail includes `market_quality_score` plus quality components,
   `reason_codes`, `risk_flags`, and `passes_paper_gate`.
-- `/signals` returns `BUY`, `OBSERVE`, and/or `IGNORE` signals once crypto
-  threshold markets have been processed and supported assets are enriched with
-  public BTC/ETH/SOL market data.
+- `/signals` returns `crypto_threshold_v1` signals for crypto threshold markets
+  once supported assets are enriched with public BTC/ETH/SOL market data.
 - Market detail exposes a manual refresh action for stale prices; it should write
   a `manual_refresh` row to `api_usage_ledger`.
 - Paper orders use bid/ask based fills and can be traced through

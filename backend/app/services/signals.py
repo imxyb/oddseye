@@ -297,6 +297,7 @@ def _signal_item(signal: ModelSignal, market: PredictionMarket, event: Predictio
     return {
         "signal_id": signal.id,
         "market_id": signal.market_id,
+        "strategy_code": signal.strategy_code,
         "question": market.question,
         "category": (event.categories or ["uncategorized"])[0],
         "action": signal.action,

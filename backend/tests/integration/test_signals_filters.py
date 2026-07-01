@@ -67,6 +67,7 @@ async def test_list_signals_filters_before_applying_limit(tmp_path) -> None:
 
         assert response["total"] == 1
         assert response["items"][0]["action"] == "BUY"
+        assert response["items"][0]["strategy_code"] == "crypto_threshold_v1"
     await sessionmaker.bind.dispose()
 
 

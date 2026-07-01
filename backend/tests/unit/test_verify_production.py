@@ -113,11 +113,28 @@ def _successful_responses() -> dict[tuple[str, str], dict]:
             "/markets/market-1/bars?range=7d&resolution=hour1",
         ): {"bars": [{"t": 1, "yes_bid": 0.48, "yes_ask": 0.5}]},
         ("GET", "/signals?limit=3"): {"items": [{"signal_id": "signal-1"}]},
+        ("GET", "/signals?category=crypto&limit=20"): {
+            "items": [
+                {
+                    "signal_id": "signal-crypto-threshold",
+                    "market_id": "market-1",
+                    "strategy_code": "crypto_threshold_v1",
+                    "question": "Will BTC be above $80,000 on July 31, 2026?",
+                    "category": "crypto",
+                    "action": "BUY",
+                    "side": "YES",
+                    "executable_price": 0.5,
+                }
+            ],
+        },
         ("GET", "/signals?action=BUY&limit=5"): {
             "items": [
                 {
                     "signal_id": "signal-buy",
                     "market_id": "market-1",
+                    "strategy_code": "crypto_threshold_v1",
+                    "question": "Will BTC be above $80,000 on July 31, 2026?",
+                    "category": "crypto",
                     "action": "BUY",
                     "side": "YES",
                     "executable_price": 0.5,
@@ -213,6 +230,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "paper_manual_order",
         "market_bars",
         "signals",
+        "crypto_threshold_signal",
         "paper_signal_order",
         "usage",
         "scheduled_jobs",
@@ -245,6 +263,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ),
         ("GET", "/markets/market-1/bars?range=7d&resolution=hour1", "token-123", None),
         ("GET", "/signals?limit=3", "token-123", None),
+        ("GET", "/signals?category=crypto&limit=20", "token-123", None),
         ("GET", "/signals?action=BUY&limit=5", "token-123", None),
         (
             "POST",
@@ -357,6 +376,31 @@ def test_verify_production_rejects_unfilled_signal_paper_order() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="paper_signal_order"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_missing_crypto_threshold_signal() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/signals?category=crypto&limit=20")] = {
+        "items": [
+            {
+                "signal_id": "signal-other",
+                "market_id": "market-2",
+                "strategy_code": "macro_calendar_v1",
+                "question": "Will the next CPI print be above consensus?",
+                "category": "economics",
+                "action": "OBSERVE",
+            }
+        ],
+    }
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="crypto_threshold_signal"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",
