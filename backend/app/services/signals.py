@@ -8,8 +8,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import utcnow
 from app.db.models import MarketSnapshot, ModelSignal, PredictionEvent, PredictionMarket
+from app.services.asset_market_data import (
+    AssetMarketData,
+    AssetMarketDataProvider,
+    BinanceAssetMarketDataProvider,
+)
 from app.services.paper_trading import PaperOrderInput, create_paper_order
-from app.strategies.crypto_threshold import CryptoMarketContext, CryptoThresholdStrategy
+from app.strategies.crypto_threshold import (
+    CryptoMarketContext,
+    CryptoThresholdStrategy,
+    parse_crypto_threshold,
+)
 
 
 async def list_signals(
@@ -70,8 +79,14 @@ async def create_order_from_signal(
     )
 
 
-async def compute_crypto_signals(session: AsyncSession) -> int:
+async def compute_crypto_signals(
+    session: AsyncSession,
+    asset_market_data_provider: AssetMarketDataProvider | None = None,
+) -> int:
     strategy = CryptoThresholdStrategy()
+    provider = asset_market_data_provider or BinanceAssetMarketDataProvider()
+    owns_provider = asset_market_data_provider is None
+    asset_cache: dict[str, AssetMarketData | dict | None] = {}
     rows = await session.execute(
         select(PredictionMarket, PredictionEvent, MarketSnapshot)
         .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
@@ -88,12 +103,13 @@ async def compute_crypto_signals(session: AsyncSession) -> int:
             continue
         if snapshot.market_quality_score is None or market.closes_at is None:
             continue
-        # V1 leaves market price ingestion external; use threshold parser plus current probability inputs
-        # when a seed or enrichment process has written current_price/volatility into raw_json.
+        parsed = parse_crypto_threshold(market.question)
+        if parsed is None:
+            continue
         raw = market.raw_json or {}
-        current_price = raw.get("current_price")
-        volatility = raw.get("annualized_volatility")
-        if current_price is None or volatility is None:
+        asset_data = await _asset_market_data(provider, asset_cache, parsed.asset)
+        strategy_inputs = _strategy_inputs(raw, asset_data)
+        if strategy_inputs is None:
             continue
         signal = strategy.evaluate(
             CryptoMarketContext(
@@ -101,8 +117,8 @@ async def compute_crypto_signals(session: AsyncSession) -> int:
                 question=market.question,
                 now=utcnow(),
                 deadline=market.closes_at,
-                current_price=Decimal(str(current_price)),
-                annualized_volatility=Decimal(str(volatility)),
+                current_price=strategy_inputs["current_price"],
+                annualized_volatility=strategy_inputs["annualized_volatility"],
                 yes_ask=snapshot.outcome0_best_ask,
                 no_ask=snapshot.outcome1_best_ask,
                 market_quality_score=snapshot.market_quality_score,
@@ -126,11 +142,63 @@ async def compute_crypto_signals(session: AsyncSession) -> int:
                 reason_codes=signal.reason_codes,
                 risk_flags=signal.risk_flags,
                 expires_at=signal.expires_at,
-                raw_json={"snapshot_id": signal.snapshot_id},
+                raw_json={
+                    "snapshot_id": signal.snapshot_id,
+                    "asset_market_data": strategy_inputs["metadata"],
+                },
             )
         )
         count += 1
+    if owns_provider and hasattr(provider, "aclose"):
+        await provider.aclose()
     return count
+
+
+async def _asset_market_data(
+    provider: AssetMarketDataProvider,
+    cache: dict[str, AssetMarketData | dict | None],
+    asset: str,
+) -> AssetMarketData | dict | None:
+    if asset not in cache:
+        try:
+            cache[asset] = await provider.asset_market_data(asset)
+        except Exception:
+            cache[asset] = None
+    return cache[asset]
+
+
+def _strategy_inputs(
+    raw: dict[str, Any],
+    asset_data: AssetMarketData | dict | None,
+) -> dict[str, Any] | None:
+    raw_inputs = raw.get("strategy_inputs") if isinstance(raw.get("strategy_inputs"), dict) else raw
+    current_price = raw_inputs.get("current_price")
+    volatility = raw_inputs.get("annualized_volatility")
+    source = "raw_json"
+    asset = raw_inputs.get("asset")
+    if (current_price is None or volatility is None) and asset_data is not None:
+        if isinstance(asset_data, AssetMarketData):
+            current_price = asset_data.current_price
+            volatility = asset_data.annualized_volatility
+            source = asset_data.source
+            asset = asset_data.asset
+        else:
+            current_price = asset_data.get("current_price")
+            volatility = asset_data.get("annualized_volatility")
+            source = asset_data.get("source", "asset_market_data")
+            asset = asset_data.get("asset")
+    if current_price is None or volatility is None:
+        return None
+    return {
+        "current_price": Decimal(str(current_price)),
+        "annualized_volatility": Decimal(str(volatility)),
+        "metadata": {
+            "asset": asset,
+            "current_price": str(current_price),
+            "annualized_volatility": str(volatility),
+            "source": source,
+        },
+    }
 
 
 def _signal_item(signal: ModelSignal, market: PredictionMarket, event: PredictionEvent) -> dict[str, Any]:

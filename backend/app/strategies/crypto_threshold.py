@@ -9,7 +9,11 @@ from decimal import Decimal
 from app.strategies.base import StrategySignal
 
 ASSET_PATTERN = re.compile(r"\b(BTC|BITCOIN|ETH|ETHEREUM|SOL|SOLANA)\b", re.IGNORECASE)
-THRESHOLD_PATTERN = re.compile(r"\$?\s*([0-9]{2,3}(?:,[0-9]{3})+|[0-9]+(?:\.[0-9]+)?)")
+THRESHOLD_PATTERN = re.compile(
+    r"(?:\$\s*([0-9]+(?:,[0-9]{3})*(?:\.[0-9]+)?)|"
+    r"([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?)\s*(?:USD|USDT|DOLLARS?)?)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -46,14 +50,15 @@ def parse_crypto_threshold(question: str) -> ParsedCryptoThreshold | None:
     if not asset_match or not threshold_match:
         return None
     upper = question.upper()
-    if "BELOW" in upper or "UNDER" in upper:
+    if any(token in upper for token in ("BELOW", "UNDER", "DIP", "DROP", "FALL")):
         condition = "close_below"
     elif "HIT" in upper or "REACH" in upper:
         condition = "hit_above"
     else:
         condition = "close_above"
-    threshold = Decimal(threshold_match.group(1).replace(",", ""))
-    confidence = Decimal("0.86") if "$" in question or "," in threshold_match.group(1) else Decimal("0.78")
+    threshold_text = next(group for group in threshold_match.groups() if group)
+    threshold = Decimal(threshold_text.replace(",", ""))
+    confidence = Decimal("0.86")
     return ParsedCryptoThreshold(
         asset=normalize_asset(asset_match.group(1)),
         condition_type=condition,
@@ -181,4 +186,3 @@ class CryptoThresholdStrategy:
             expires_at=context.now + timedelta(minutes=5),
             snapshot_id=context.snapshot_id,
         )
-

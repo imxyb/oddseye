@@ -18,6 +18,10 @@ def test_parse_crypto_threshold_market_extracts_asset_threshold_and_direction() 
     assert parsed.confidence >= 0.75
 
 
+def test_parse_crypto_threshold_ignores_interval_numbers_without_price_marker() -> None:
+    assert parse_crypto_threshold("BTC price up in next 15 mins?") is None
+
+
 def test_strategy_generates_buy_yes_when_model_edge_exceeds_market_ask() -> None:
     strategy = CryptoThresholdStrategy(min_edge=Decimal("0.07"))
 
