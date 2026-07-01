@@ -14,6 +14,8 @@ Thumbs.db
 .env.*
 !.env.example
 !**/.env.example
+config/app.yaml
+config/*.local.yaml
 *.pem
 *.key
 *.cert
