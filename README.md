@@ -127,8 +127,10 @@ signals, usage counters, recent ingestion job runs, paper performance metrics,
 paper positions, and paper trade traceability in one repeatable command:
 
 The verifier creates tiny paper BUY orders through both the manual order API and
-the signal order API so V1 paper-trading flows are checked against production
-quotes. These orders are paper-only but they do update the paper account.
+the signal order API, then sells the manual position back through the manual
+order API. This checks that BUY fills use ask-side pricing and SELL fills use
+bid-side pricing against production quotes. These orders are paper-only but they
+do update the paper account.
 
 ```bash
 docker compose -f docker-compose.prod.yml run --rm \
@@ -194,6 +196,11 @@ curl -fsS -X POST "https://oddseye.fun/paper/orders" \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   --data '{"market_id":"REPLACE_WITH_MARKET_ID","side":"BUY","outcome_index":0,"limit_price":"REPLACE_WITH_ASK","quantity":"0.01"}'
+
+curl -fsS -X POST "https://oddseye.fun/paper/orders" \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
+  --data '{"market_id":"REPLACE_WITH_MARKET_ID","side":"SELL","outcome_index":0,"limit_price":"REPLACE_WITH_BID","quantity":"0.01"}'
 
 curl -fsS "https://oddseye.fun/signals?action=BUY&limit=5" \
   -H "Authorization: Bearer $TOKEN"

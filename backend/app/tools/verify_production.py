@@ -193,7 +193,7 @@ def verify_production(
         )
     )
 
-    manual_outcome_index, manual_ask = _first_buy_quote(detail)
+    manual_outcome_index, manual_bid, manual_ask = _first_tradable_quote(detail)
     manual_order = production_client.request(
         "POST",
         "/paper/orders",
@@ -217,6 +217,32 @@ def verify_production(
             "paper_manual_order",
             True,
             "manual BUY order filled at or above displayed ask",
+        )
+    )
+
+    manual_sell_order = production_client.request(
+        "POST",
+        "/paper/orders",
+        token=token,
+        json_body={
+            "market_id": first_market,
+            "side": "SELL",
+            "outcome_index": manual_outcome_index,
+            "limit_price": str(manual_bid),
+            "quantity": str(VERIFY_PAPER_QUANTITY),
+        },
+    )
+    _require_paper_sell_fill(
+        manual_sell_order,
+        name="paper_manual_sell_order",
+        reference_price=manual_bid,
+        expected_signal_id=None,
+    )
+    checks.append(
+        VerificationCheck(
+            "paper_manual_sell_order",
+            True,
+            "manual SELL order filled at or below displayed bid",
         )
     )
 
@@ -372,19 +398,20 @@ def _require_market_detail(payload: dict[str, Any]) -> None:
     _require(payload.get("liquidity_usd") is not None, "market_detail", "missing liquidity")
 
 
-def _first_buy_quote(payload: dict[str, Any]) -> tuple[int, Decimal]:
+def _first_tradable_quote(payload: dict[str, Any]) -> tuple[int, Decimal, Decimal]:
     outcomes = payload.get("outcomes")
     _require(isinstance(outcomes, list), "paper_manual_order", "missing outcomes")
     for outcome in outcomes:
         if not isinstance(outcome, dict):
             continue
-        if outcome.get("ask") is None:
+        if outcome.get("bid") is None or outcome.get("ask") is None:
             continue
         index = outcome.get("index")
         _require(isinstance(index, int) and not isinstance(index, bool), "paper_manual_order", "missing outcome index")
+        bid = _decimal_payload_value(outcome.get("bid"), "paper_manual_order", "outcome bid")
         ask = _decimal_payload_value(outcome.get("ask"), "paper_manual_order", "outcome ask")
-        return index, ask
-    raise ProductionVerificationError("paper_manual_order: no BUY ask quote available")
+        return index, bid, ask
+    raise ProductionVerificationError("paper_manual_order: no tradable bid/ask quote available")
 
 
 def _require_quality_explanation(payload: dict[str, Any]) -> None:
@@ -448,6 +475,29 @@ def _require_paper_buy_fill(
     _require(fill.get("snapshot_id") is not None, name, "fill missing snapshot_id")
     fill_price = _decimal_payload_value(fill.get("price"), name, "fill price")
     _require(fill_price >= reference_price, name, "BUY fill price is below conservative reference price")
+
+
+def _require_paper_sell_fill(
+    payload: dict[str, Any],
+    *,
+    name: str,
+    reference_price: Decimal,
+    expected_signal_id: str | None,
+) -> None:
+    order = payload.get("order")
+    fill = payload.get("fill")
+    position = payload.get("position")
+    _require(isinstance(order, dict), name, "missing order")
+    _require(isinstance(fill, dict), name, "missing fill")
+    _require(isinstance(position, dict), name, "missing position")
+    _require(order.get("status") == "filled", name, "order was not filled")
+    if expected_signal_id is None:
+        _require(not order.get("signal_id"), name, "manual order unexpectedly has signal_id")
+    else:
+        _require(order.get("signal_id") == expected_signal_id, name, "order signal_id mismatch")
+    _require(fill.get("snapshot_id") is not None, name, "fill missing snapshot_id")
+    fill_price = _decimal_payload_value(fill.get("price"), name, "fill price")
+    _require(fill_price <= reference_price, name, "SELL fill price is above conservative reference price")
 
 
 def _first_orderable_buy_signal(payload: dict[str, Any]) -> dict[str, Any]:

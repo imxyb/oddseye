@@ -12,7 +12,7 @@ from app.tools.verify_production import (
 class FakeProductionClient:
     def __init__(
         self,
-        responses: dict[tuple[str, str], dict],
+        responses: dict[tuple[str, str], dict | list[dict]],
         text_responses: dict[tuple[str, str], str] | None = None,
     ):
         self.responses = responses
@@ -28,7 +28,10 @@ class FakeProductionClient:
         json_body: dict | None = None,
     ) -> dict:
         self.calls.append((method, path, token, json_body))
-        return self.responses[(method, path)]
+        response = self.responses[(method, path)]
+        if isinstance(response, list):
+            return response.pop(0)
+        return response
 
     def request_text(
         self,
@@ -41,7 +44,7 @@ class FakeProductionClient:
         return self.text_responses[(method, path)]
 
 
-def _successful_responses() -> dict[tuple[str, str], dict]:
+def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
     return {
         ("GET", "/health"): {"status": "ok"},
         ("POST", "/auth/login"): {"access_token": "token-123"},
@@ -98,16 +101,28 @@ def _successful_responses() -> dict[tuple[str, str], dict]:
                 "passes_paper_gate": True,
             },
         },
-        ("POST", "/paper/orders"): {
-            "order": {
-                "order_id": "manual-order",
-                "market_id": "market-1",
-                "signal_id": None,
-                "status": "filled",
+        ("POST", "/paper/orders"): [
+            {
+                "order": {
+                    "order_id": "manual-buy-order",
+                    "market_id": "market-1",
+                    "signal_id": None,
+                    "status": "filled",
+                },
+                "fill": {"fill_id": "manual-buy-fill", "price": 0.50125, "snapshot_id": 10},
+                "position": {"position_id": "manual-position", "quantity": 0.01, "status": "open"},
             },
-            "fill": {"fill_id": "manual-fill", "price": 0.50125, "snapshot_id": 10},
-            "position": {"position_id": "manual-position"},
-        },
+            {
+                "order": {
+                    "order_id": "manual-sell-order",
+                    "market_id": "market-1",
+                    "signal_id": None,
+                    "status": "filled",
+                },
+                "fill": {"fill_id": "manual-sell-fill", "price": 0.4788, "snapshot_id": 12},
+                "position": {"position_id": "manual-position", "quantity": 0, "status": "closed"},
+            },
+        ],
         (
             "GET",
             "/markets/market-1/bars?range=7d&resolution=hour1",
@@ -247,6 +262,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "market_detail",
         "market_quality_explanation",
         "paper_manual_order",
+        "paper_manual_sell_order",
         "market_bars",
         "signals",
         "crypto_threshold_signal",
@@ -278,6 +294,18 @@ def test_verify_production_checks_documented_endpoints() -> None:
                 "side": "BUY",
                 "outcome_index": 0,
                 "limit_price": "0.5",
+                "quantity": "0.01",
+            },
+        ),
+        (
+            "POST",
+            "/paper/orders",
+            "token-123",
+            {
+                "market_id": "market-1",
+                "side": "SELL",
+                "outcome_index": 0,
+                "limit_price": "0.48",
                 "quantity": "0.01",
             },
         ),
@@ -333,14 +361,39 @@ def test_verify_production_rejects_unsorted_radar_dimension() -> None:
 
 def test_verify_production_rejects_non_conservative_manual_buy_fill() -> None:
     responses = _successful_responses()
-    responses[("POST", "/paper/orders")] = {
+    responses[("POST", "/paper/orders")] = [{
         "order": {"order_id": "manual-order", "market_id": "market-1", "status": "filled"},
         "fill": {"fill_id": "manual-fill", "price": 0.49, "snapshot_id": 10},
         "position": {"position_id": "manual-position"},
-    }
+    }]
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="paper_manual_order"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_non_conservative_manual_sell_fill() -> None:
+    responses = _successful_responses()
+    responses[("POST", "/paper/orders")] = [
+        {
+            "order": {"order_id": "manual-buy-order", "market_id": "market-1", "status": "filled"},
+            "fill": {"fill_id": "manual-buy-fill", "price": 0.50125, "snapshot_id": 10},
+            "position": {"position_id": "manual-position"},
+        },
+        {
+            "order": {"order_id": "manual-sell-order", "market_id": "market-1", "status": "filled"},
+            "fill": {"fill_id": "manual-sell-fill", "price": 0.481, "snapshot_id": 12},
+            "position": {"position_id": "manual-position"},
+        },
+    ]
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="paper_manual_sell_order"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",
