@@ -1,6 +1,10 @@
 import { apiFetch } from "./client";
 import { toQueryString } from "./queryString";
-import type { MarketBarsResponse, MarketDetail } from "./types";
+import type {
+  MarketBarsResponse,
+  MarketDetail,
+  MarketRefreshResponse,
+} from "./types";
 
 export interface MarketBarsParams {
   range?: "24h" | "7d" | "30d" | "all";
@@ -23,5 +27,14 @@ export function getMarketBars(
 ) {
   return apiFetch<MarketBarsResponse>(
     `/markets/${encodeURIComponent(marketId)}/bars${toQueryString(params)}`,
+  );
+}
+
+export function refreshMarket(marketId: string) {
+  return apiFetch<MarketRefreshResponse>(
+    `/markets/${encodeURIComponent(marketId)}/refresh`,
+    {
+      method: "POST",
+    },
   );
 }

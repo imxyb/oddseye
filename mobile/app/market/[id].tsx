@@ -1,7 +1,9 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import {
   ActivityIndicator,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,7 +11,12 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { getMarket, getMarketBars, marketKeys } from "../../src/api/markets";
+import {
+  getMarket,
+  getMarketBars,
+  marketKeys,
+  refreshMarket,
+} from "../../src/api/markets";
 import { createPaperOrder, paperKeys } from "../../src/api/paper";
 import type { PaperOrderRequest } from "../../src/api/types";
 import { PaperOrderSheet } from "../../src/components/PaperOrderSheet";
@@ -43,6 +50,17 @@ export default function MarketDetailScreen() {
     queryFn: () =>
       getMarketBars(marketId, { range: "7d", resolution: "hour1" }),
     enabled: Boolean(marketId),
+  });
+
+  const refreshMutation = useMutation({
+    mutationFn: () => refreshMarket(marketId),
+    onSuccess: (response) => {
+      queryClient.setQueryData(marketKeys.detail(marketId), response.market);
+      void queryClient.invalidateQueries({
+        queryKey: ["markets", marketId, "bars"],
+      });
+      void queryClient.invalidateQueries({ queryKey: ["radar"] });
+    },
   });
 
   const orderMutation = useMutation({
@@ -90,11 +108,42 @@ export default function MarketDetailScreen() {
             <Text style={styles.subtle}>Close {formatDate(market.closes_at)}</Text>
             <Text style={styles.subtle}>Status {market.status}</Text>
           </View>
-          <SignalBadge
-            action={market.latest_signal?.action}
-            side={market.latest_signal?.side}
-          />
+          <View style={styles.actionRow}>
+            <SignalBadge
+              action={market.latest_signal?.action}
+              side={market.latest_signal?.side}
+            />
+            <Pressable
+              accessibilityRole="button"
+              disabled={refreshMutation.isPending}
+              onPress={() => void refreshMutation.mutateAsync()}
+              style={({ pressed }) => [
+                styles.refreshButton,
+                pressed && styles.pressed,
+                refreshMutation.isPending && styles.disabled,
+              ]}
+            >
+              {refreshMutation.isPending ? (
+                <ActivityIndicator color={colors.primary} size="small" />
+              ) : (
+                <Ionicons
+                  color={colors.primary}
+                  name="refresh"
+                  size={16}
+                />
+              )}
+              <Text style={styles.refreshText}>Refresh market</Text>
+            </Pressable>
+          </View>
         </View>
+
+        {refreshMutation.error ? (
+          <Text style={styles.error}>
+            {refreshMutation.error instanceof Error
+              ? refreshMutation.error.message
+              : "Could not refresh market."}
+          </Text>
+        ) : null}
 
         {freshnessNotice ? (
           <View style={styles.warning}>
@@ -223,6 +272,12 @@ const styles = StyleSheet.create({
   header: {
     gap: spacing.md,
   },
+  actionRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
   metaRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -248,6 +303,34 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: "600",
+  },
+  refreshButton: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 6,
+    minHeight: 34,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  refreshText: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  disabled: {
+    opacity: 0.55,
+  },
+  pressed: {
+    opacity: 0.75,
+  },
+  error: {
+    color: colors.danger,
+    fontSize: 13,
+    fontWeight: "700",
   },
   warning: {
     backgroundColor: colors.warningSoft,

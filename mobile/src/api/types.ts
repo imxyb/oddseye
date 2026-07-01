@@ -99,6 +99,12 @@ export interface MarketDetail extends RadarMarket {
   current_position?: PaperPosition | null;
 }
 
+export interface MarketRefreshResponse {
+  market_id: string;
+  records_processed: number;
+  market: MarketDetail;
+}
+
 export interface Signal {
   signal_id: string;
   market_id: string;

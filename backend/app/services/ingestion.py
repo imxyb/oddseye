@@ -158,6 +158,7 @@ async def sync_event_markets(
     event_ids: list[str],
     client: CodexClient | None = None,
     job_run_id: str | None = None,
+    kind: str = "market_snapshot",
 ) -> int:
     settings = get_settings()
     if client is None and not settings.codex_api_key:
@@ -167,7 +168,11 @@ async def sync_event_markets(
     await ensure_default_venues(session)
     client = client or create_codex_client()
     data = await client.event_markets(
-        event_ids, limit=settings.config.radar.max_markets_per_ingest, job_run_id=job_run_id
+        event_ids,
+        limit=settings.config.radar.max_markets_per_ingest,
+        job_run_id=job_run_id,
+        kind=kind,
+        metadata={"fetch_profile": settings.config.codex.fetch_profile},
     )
     rows = ((data.get("filterPredictionMarkets") or {}).get("results")) or []
     count = 0
@@ -213,6 +218,27 @@ async def sync_event_markets(
         await _insert_snapshot(session, market, event, normalized.snapshot, normalized.raw_json)
         count += 1
     return count
+
+
+async def refresh_market(
+    session: AsyncSession,
+    market_id: str,
+    client: CodexClient | None = None,
+    job_run_id: str | None = None,
+) -> int | None:
+    market = await session.get(PredictionMarket, market_id)
+    if market is None:
+        return None
+    event = await session.get(PredictionEvent, market.event_id)
+    if event is None:
+        return None
+    return await sync_event_markets(
+        session,
+        [event.external_event_id],
+        client=client,
+        job_run_id=job_run_id,
+        kind="manual_refresh",
+    )
 
 
 async def compute_quality_for_latest_snapshots(session: AsyncSession) -> int:

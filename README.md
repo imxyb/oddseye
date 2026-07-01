@@ -42,6 +42,8 @@ Paper trading review endpoints:
 
 - `GET /paper/review` returns strategy/category rollups and trade rows.
 - `GET /paper/trades.csv` exports fills with `signal_id` and `snapshot_id` traceability.
+- `POST /markets/{market_id}/refresh` refreshes the current market event from
+  Codex and records the request as `manual_refresh`.
 
 ## Production Deployment
 
@@ -147,6 +149,8 @@ Expected production state:
   real Codex data, not `seed-*` demo rows.
 - `/signals` returns `BUY` and/or `OBSERVE` signals once crypto threshold markets
   have been enriched with public BTC/ETH/SOL market data.
+- Market detail exposes a manual refresh action for stale prices; it should write
+  a `manual_refresh` row to `api_usage_ledger`.
 - Paper orders use bid/ask based fills and can be traced through
   `signal_id` and `snapshot_id`.
 

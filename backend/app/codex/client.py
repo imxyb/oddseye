@@ -57,10 +57,15 @@ class CodexClient:
         query: str,
         variables: dict[str, Any] | None,
         job_run_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         started = utcnow()
         status = "success"
-        metadata = {"query_size": len(query), "variable_keys": sorted((variables or {}).keys())}
+        usage_metadata = {
+            "query_size": len(query),
+            "variable_keys": sorted((variables or {}).keys()),
+            **(metadata or {}),
+        }
         try:
             data = await self._post_with_retries(query, variables or {})
             return data
@@ -77,12 +82,18 @@ class CodexClient:
                     status=status,
                     duration_ms=duration_ms,
                     job_run_id=job_run_id,
-                    metadata=metadata,
+                    metadata=usage_metadata,
                 )
             )
 
     async def prediction_categories(self, job_run_id: str | None = None) -> dict[str, Any]:
-        return await self.call("categories", queries.PREDICTION_CATEGORIES, {}, job_run_id=job_run_id)
+        return await self.call(
+            "categories",
+            queries.PREDICTION_CATEGORIES,
+            {},
+            job_run_id=job_run_id,
+            metadata={"query_name": "PredictionCategories"},
+        )
 
     async def discover_events(
         self,
@@ -96,16 +107,27 @@ class CodexClient:
             queries.DISCOVER_EVENTS,
             {"categories": categories, "limit": _codex_limit(limit), "offset": offset},
             job_run_id=job_run_id,
+            metadata={"query_name": "DiscoverEvents", "category_count": len(categories)},
         )
 
     async def event_markets(
-        self, event_ids: list[str], limit: int = 300, job_run_id: str | None = None
+        self,
+        event_ids: list[str],
+        limit: int = 300,
+        job_run_id: str | None = None,
+        kind: str = "market_snapshot",
+        metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return await self.call(
-            "market_snapshot",
+            kind,
             queries.EVENT_MARKETS,
             {"eventIds": event_ids, "limit": _codex_limit(limit)},
             job_run_id=job_run_id,
+            metadata={
+                "query_name": "EventMarkets",
+                "market_count": len(event_ids),
+                **(metadata or {}),
+            },
         )
 
     async def market_bars(
@@ -121,6 +143,7 @@ class CodexClient:
             queries.MARKET_BARS,
             {"marketId": market_id, "from": from_ts, "to": to_ts, "resolution": resolution},
             job_run_id=job_run_id,
+            metadata={"query_name": "PredictionMarketBars", "market_id": market_id},
         )
 
     async def aclose(self) -> None:
