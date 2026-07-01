@@ -49,7 +49,7 @@ export default function LoginScreen() {
         style={styles.container}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Prediction Radar</Text>
+          <Text style={styles.title}>OddsEye</Text>
           <Text style={styles.subtitle}>Sign in to your private paper trading workspace.</Text>
         </View>
 

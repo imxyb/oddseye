@@ -1,13 +1,14 @@
 {
   "expo": {
-    "name": "Prediction Radar",
-    "slug": "prediction-radar-mobile",
+    "name": "OddsEye",
+    "slug": "oddseye-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
-    "scheme": "prediction-radar",
+    "scheme": "oddseye",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "bundleIdentifier": "fun.oddseye.app",
       "supportsTablet": true
     },
     "android": {
@@ -20,7 +21,8 @@
     },
     "plugins": [
       "expo-router",
-      "expo-secure-store"
+      "expo-secure-store",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
