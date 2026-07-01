@@ -31,3 +31,30 @@ auth:
     assert rejected.json()["detail"] == "IP not allowed"
     assert allowed.status_code == 200
     get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_ip_allowlist_ignores_forwarded_for_from_untrusted_clients(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "app.yaml"
+    config_path.write_text(
+        """
+auth:
+  ip_allowlist:
+    - 203.0.113.5
+  trusted_proxy_cidrs:
+    - 127.0.0.1
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("JWT_SECRET", "x" * 32)
+    get_settings.cache_clear()
+
+    app = create_app()
+    transport = ASGITransport(app=app, client=("198.51.100.9", 12345))
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        response = await client.get("/health", headers={"X-Forwarded-For": "203.0.113.5"})
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "IP not allowed"
+    get_settings.cache_clear()

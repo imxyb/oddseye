@@ -25,7 +25,11 @@ def create_app() -> FastAPI:
 
     @app.middleware("http")
     async def enforce_ip_allowlist(request, call_next):
-        if not client_ip_allowed(request, settings_obj.config.auth.ip_allowlist):
+        if not client_ip_allowed(
+            request,
+            settings_obj.config.auth.ip_allowlist,
+            settings_obj.config.auth.trusted_proxy_cidrs,
+        ):
             return JSONResponse(status_code=403, content={"detail": "IP not allowed"})
         return await call_next(request)
 

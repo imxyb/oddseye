@@ -10,6 +10,9 @@ auth:
       role: admin
   token_expires_days: 7
   ip_allowlist: []
+  trusted_proxy_cidrs:
+    - 127.0.0.1/32
+    - ::1/128
 
 codex:
   endpoint: "https://graph.codex.io/graphql"

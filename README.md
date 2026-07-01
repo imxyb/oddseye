@@ -84,9 +84,10 @@ python -m app.tools.hash_password
 ```
 
 For public deployments, also set `auth.ip_allowlist` to your allowed public
-CIDR(s), plus any trusted proxy/loopback ranges you need for local health checks.
-Leave it empty only on a private network or while intentionally testing public
-access.
+client CIDR(s). `auth.trusted_proxy_cidrs` controls which local reverse proxies
+may supply `X-Forwarded-For`/`X-Real-IP`; keep loopback there for Caddy when it
+proxies to `127.0.0.1:8000`. Leave `ip_allowlist` empty only on a private
+network or while intentionally testing public access.
 
 5. Run migrations and start services:
 
