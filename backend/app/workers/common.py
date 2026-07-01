@@ -15,12 +15,19 @@ async def run_db_job(job_name: str, fn: Callable) -> None:
 
 
 def run_scheduler(scheduler: AsyncIOScheduler) -> None:
-    scheduler.start()
-    loop = asyncio.get_event_loop()
     try:
-        loop.run_forever()
+        asyncio.run(_run_scheduler(scheduler))
     except (KeyboardInterrupt, SystemExit):
-        scheduler.shutdown()
+        pass
+
+
+async def _run_scheduler(scheduler: AsyncIOScheduler) -> None:
+    try:
+        scheduler.start()
+        await asyncio.Event().wait()
+    finally:
+        if getattr(scheduler, "running", True):
+            scheduler.shutdown()
 
 
 def add_interval_job(
@@ -30,4 +37,3 @@ def add_interval_job(
     fn: Callable[[], Awaitable[None]],
 ) -> None:
     scheduler.add_job(fn, "interval", seconds=seconds, id=name, name=name, max_instances=1)
-
