@@ -20,7 +20,7 @@ export const signalKeys = {
 
 export function getSignals(params: SignalsParams = {}) {
   const normalizedParams: SignalsParams = {
-    action: params.action ?? "BUY",
+    action: params.action,
     category: params.category,
     minEdge: params.minEdge,
     limit: params.limit ?? 50,

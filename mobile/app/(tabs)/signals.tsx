@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -12,10 +13,41 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getSignals, signalKeys } from "../../src/api/signals";
-import type { Signal } from "../../src/api/types";
+import type { Signal, SignalAction } from "../../src/api/types";
 import { SignalBadge } from "../../src/components/SignalBadge";
 import { colors, spacing } from "../../src/theme";
 import { formatCents, formatPercent } from "../../src/utils/format";
+
+const signalActions: Array<SignalAction | undefined> = [
+  undefined,
+  "BUY",
+  "OBSERVE",
+  "EXIT",
+  "IGNORE",
+  "HOLD",
+];
+
+function ActionFilter({
+  action,
+  selected,
+  onPress,
+}: {
+  action: SignalAction | undefined;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={[styles.filterButton, selected && styles.filterActive]}
+    >
+      <Text style={[styles.filterText, selected && styles.filterTextActive]}>
+        {action ?? "ALL"}
+      </Text>
+    </Pressable>
+  );
+}
 
 function SignalCard({ signal }: { signal: Signal }) {
   return (
@@ -85,7 +117,14 @@ function SignalCard({ signal }: { signal: Signal }) {
 }
 
 export default function SignalsScreen() {
-  const params = { limit: 50 };
+  const [selectedAction, setSelectedAction] = useState<SignalAction | undefined>();
+  const params = useMemo(
+    () => ({
+      action: selectedAction,
+      limit: 50,
+    }),
+    [selectedAction],
+  );
   const signalsQuery = useQuery({
     queryKey: signalKeys.list(params),
     queryFn: () => getSignals(params),
@@ -97,6 +136,18 @@ export default function SignalsScreen() {
         contentContainerStyle={styles.listContent}
         data={signalsQuery.data?.items ?? []}
         keyExtractor={(item) => item.signal_id}
+        ListHeaderComponent={
+          <View style={styles.filterGroup}>
+            {signalActions.map((action) => (
+              <ActionFilter
+                key={action ?? "all"}
+                action={action}
+                selected={selectedAction === action}
+                onPress={() => setSelectedAction(action)}
+              />
+            ))}
+          </View>
+        }
         ListEmptyComponent={
           <View style={styles.state}>
             {signalsQuery.isLoading ? (
@@ -131,6 +182,28 @@ const styles = StyleSheet.create({
   listContent: {
     gap: spacing.md,
     padding: spacing.lg,
+  },
+  filterGroup: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+  },
+  filterButton: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 8,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
+  },
+  filterActive: {
+    backgroundColor: colors.primary,
+  },
+  filterText: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  filterTextActive: {
+    color: colors.surface,
   },
   card: {
     backgroundColor: colors.surface,
