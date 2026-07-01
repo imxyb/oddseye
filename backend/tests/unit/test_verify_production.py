@@ -31,6 +31,12 @@ def _successful_responses() -> dict[tuple[str, str], dict]:
         ("GET", "/health"): {"status": "ok"},
         ("POST", "/auth/login"): {"access_token": "token-123"},
         ("GET", "/radar/markets?limit=3"): {"items": [{"market_id": "market-1"}]},
+        ("GET", "/radar/markets?category=crypto&limit=3"): {
+            "items": [{"market_id": "crypto-market"}],
+        },
+        ("GET", "/radar/markets?category=economics&limit=3"): {
+            "items": [{"market_id": "macro-market"}],
+        },
         (
             "GET",
             "/markets/market-1",
@@ -68,6 +74,8 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "health",
         "login",
         "radar",
+        "crypto_markets",
+        "macro_markets",
         "market_detail",
         "market_bars",
         "signals",
@@ -79,6 +87,8 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/health", None, None),
         ("POST", "/auth/login", None, {"username": "admin", "password": "secret"}),
         ("GET", "/radar/markets?limit=3", "token-123", None),
+        ("GET", "/radar/markets?category=crypto&limit=3", "token-123", None),
+        ("GET", "/radar/markets?category=economics&limit=3", "token-123", None),
         ("GET", "/markets/market-1", "token-123", None),
         ("GET", "/markets/market-1/bars?range=7d&resolution=hour1", "token-123", None),
         ("GET", "/signals?limit=3", "token-123", None),

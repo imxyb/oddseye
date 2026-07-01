@@ -96,6 +96,22 @@ def verify_production(
     radar_count = _require_items(radar, "radar")
     checks.append(VerificationCheck("radar", True, f"{radar_count} markets returned"))
 
+    crypto_markets = production_client.request(
+        "GET",
+        "/radar/markets?category=crypto&limit=3",
+        token=token,
+    )
+    crypto_count = _require_items(crypto_markets, "crypto_markets")
+    checks.append(VerificationCheck("crypto_markets", True, f"{crypto_count} markets returned"))
+
+    macro_markets = production_client.request(
+        "GET",
+        "/radar/markets?category=economics&limit=3",
+        token=token,
+    )
+    macro_count = _require_items(macro_markets, "macro_markets")
+    checks.append(VerificationCheck("macro_markets", True, f"{macro_count} markets returned"))
+
     first_market = _first_market_id(radar)
     encoded_market_id = quote(first_market, safe="")
     detail = production_client.request("GET", f"/markets/{encoded_market_id}", token=token)

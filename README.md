@@ -118,9 +118,9 @@ printf 'EXPO_PUBLIC_API_BASE_URL=https://oddseye.fun\n' > .env
 ## Production Verification
 
 After migrations and service startup, run the production verifier from the built
-API image. It checks health, login, Radar live data, market detail quotes,
-chart bars, active signals, usage counters, and paper performance metrics in one
-repeatable command:
+API image. It checks health, login, Radar live data, Crypto and Macro/Economics
+category data, market detail quotes, chart bars, active signals, usage counters,
+and paper performance metrics in one repeatable command:
 
 ```bash
 docker compose -f docker-compose.prod.yml run --rm \
