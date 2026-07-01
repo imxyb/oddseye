@@ -27,6 +27,14 @@ class VerificationCheck:
 
 VERIFY_PAPER_QUANTITY = Decimal("0.01")
 VERIFY_PAPER_NOTIONAL = Decimal("0.01")
+QUALITY_COMPONENT_NAMES = (
+    "liquidity",
+    "spread",
+    "resolution_clarity",
+    "modelability",
+    "time",
+    "activity",
+)
 
 
 class ProductionClient(Protocol):
@@ -173,6 +181,15 @@ def verify_production(
     detail = production_client.request("GET", f"/markets/{encoded_market_id}", token=token)
     _require_market_detail(detail)
     checks.append(VerificationCheck("market_detail", True, "quote and liquidity returned"))
+
+    _require_quality_explanation(detail)
+    checks.append(
+        VerificationCheck(
+            "market_quality_explanation",
+            True,
+            "score components, reasons, risk flags, and paper gate returned",
+        )
+    )
 
     manual_outcome_index, manual_ask = _first_buy_quote(detail)
     manual_order = production_client.request(
@@ -346,6 +363,46 @@ def _first_buy_quote(payload: dict[str, Any]) -> tuple[int, Decimal]:
         ask = _decimal_payload_value(outcome.get("ask"), "paper_manual_order", "outcome ask")
         return index, ask
     raise ProductionVerificationError("paper_manual_order: no BUY ask quote available")
+
+
+def _require_quality_explanation(payload: dict[str, Any]) -> None:
+    name = "market_quality_explanation"
+    score = _decimal_payload_value(payload.get("market_quality_score"), name, "market_quality_score")
+    _require(Decimal("0") <= score <= Decimal("100"), name, "market_quality_score must be between 0 and 100")
+
+    quality = payload.get("quality")
+    _require(isinstance(quality, dict), name, "missing quality object")
+    components = quality.get("components")
+    _require(isinstance(components, dict), name, "missing quality components")
+    missing_components = [component for component in QUALITY_COMPONENT_NAMES if component not in components]
+    _require(
+        not missing_components,
+        name,
+        f"missing quality components: {', '.join(missing_components)}",
+    )
+    for component in QUALITY_COMPONENT_NAMES:
+        value = _decimal_payload_value(components.get(component), name, f"quality component {component}")
+        _require(
+            Decimal("0") <= value <= Decimal("100"),
+            name,
+            f"quality component {component} must be between 0 and 100",
+        )
+
+    reason_codes = quality.get("reason_codes")
+    risk_flags = quality.get("risk_flags")
+    _require(isinstance(reason_codes, list), name, "missing reason_codes list")
+    _require(isinstance(risk_flags, list), name, "missing risk_flags list")
+    _require(
+        all(isinstance(code, str) and code for code in reason_codes),
+        name,
+        "reason_codes must contain only non-empty strings",
+    )
+    _require(
+        all(isinstance(flag, str) and flag for flag in risk_flags),
+        name,
+        "risk_flags must contain only non-empty strings",
+    )
+    _require(isinstance(quality.get("passes_paper_gate"), bool), name, "missing passes_paper_gate boolean")
 
 
 def _require_paper_buy_fill(

@@ -83,6 +83,20 @@ def _successful_responses() -> dict[tuple[str, str], dict]:
             "market_id": "market-1",
             "outcomes": [{"index": 0, "bid": 0.48, "ask": 0.5, "spread": 0.02}],
             "liquidity_usd": 25000,
+            "market_quality_score": 80,
+            "quality": {
+                "components": {
+                    "liquidity": 75,
+                    "spread": 100,
+                    "resolution_clarity": 80,
+                    "modelability": 90,
+                    "time": 100,
+                    "activity": 60,
+                },
+                "reason_codes": ["LIQUIDITY_OK", "SPREAD_OK"],
+                "risk_flags": [],
+                "passes_paper_gate": True,
+            },
         },
         ("POST", "/paper/orders"): {
             "order": {
@@ -165,6 +179,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "crypto_markets",
         "macro_markets",
         "market_detail",
+        "market_quality_explanation",
         "paper_manual_order",
         "market_bars",
         "signals",
@@ -255,6 +270,39 @@ def test_verify_production_rejects_non_conservative_manual_buy_fill() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="paper_manual_order"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_missing_quality_explanation() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/markets/market-1")] = {
+        "market_id": "market-1",
+        "outcomes": [{"index": 0, "bid": 0.48, "ask": 0.5, "spread": 0.02}],
+        "liquidity_usd": 25000,
+        "market_quality_score": 80,
+    }
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="market_quality_explanation"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_incomplete_quality_components() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/markets/market-1")]["quality"]["components"] = {"liquidity": 75}
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="market_quality_explanation"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",
