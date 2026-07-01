@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from pathlib import Path
+from typing import Any
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import or_, select
+import yaml
 
 from app.core.config import get_settings
 from app.core.time import utcnow
@@ -32,15 +36,28 @@ async def discover_events_job() -> None:
 
 
 async def sync_hot_markets_job() -> None:
-    await _sync_markets(limit=get_settings().config.ingestion_tiers.hot_watchlist_max_markets)
+    await _sync_markets(
+        limit=get_settings().config.ingestion_tiers.hot_watchlist_max_markets,
+        job_name="sync_hot_markets",
+        usage_kind="hot_snapshot",
+        watchlist_path=_default_watchlist_path(),
+    )
 
 
 async def sync_warm_markets_job() -> None:
-    await _sync_markets(limit=get_settings().config.ingestion_tiers.warm_pool_max_markets)
+    await _sync_markets(
+        limit=get_settings().config.ingestion_tiers.warm_pool_max_markets,
+        job_name="sync_warm_markets",
+        usage_kind="warm_snapshot",
+    )
 
 
 async def sync_cold_markets_job() -> None:
-    await _sync_markets(limit=get_settings().config.ingestion_tiers.cold_pool_max_markets)
+    await _sync_markets(
+        limit=get_settings().config.ingestion_tiers.cold_pool_max_markets,
+        job_name="sync_cold_markets",
+        usage_kind="cold_snapshot",
+    )
 
 
 async def compute_quality_job() -> None:
@@ -50,15 +67,33 @@ async def compute_quality_job() -> None:
         await session.commit()
 
 
-async def _sync_markets(limit: int) -> None:
+async def _sync_markets(
+    limit: int,
+    job_name: str = "sync_markets",
+    usage_kind: str = "market_snapshot",
+    watchlist_path: str | Path | None = None,
+) -> None:
     async with get_session_factory()() as session:
-        async with job_run(session, "sync_markets") as run:
-            event_ids = await event_ids_for_sync(session, limit)
-            run.records_processed = await sync_event_markets(session, event_ids, job_run_id=run.id)
+        async with job_run(session, job_name) as run:
+            event_ids = await event_ids_for_sync(
+                session,
+                limit,
+                watchlist_path=watchlist_path,
+            )
+            run.records_processed = await sync_event_markets(
+                session,
+                event_ids,
+                job_run_id=run.id,
+                kind=usage_kind,
+            )
         await session.commit()
 
 
-async def event_ids_for_sync(session, limit: int) -> list[str]:
+async def event_ids_for_sync(
+    session,
+    limit: int,
+    watchlist_path: str | Path | None = None,
+) -> list[str]:
     event_ids: list[str] = []
 
     async def append(query) -> None:
@@ -69,6 +104,7 @@ async def event_ids_for_sync(session, limit: int) -> list[str]:
             if len(event_ids) >= limit:
                 return
 
+    await _append_watchlist_event_ids(session, event_ids, limit, watchlist_path)
     await append(
         select(PredictionEvent.external_event_id)
         .join(PredictionMarket, PredictionMarket.event_id == PredictionEvent.id)
@@ -95,6 +131,91 @@ async def event_ids_for_sync(session, limit: int) -> list[str]:
         .order_by(MarketSnapshot.market_quality_score.desc(), PredictionEvent.updated_at.desc())
     )
     return event_ids[:limit]
+
+
+async def _append_watchlist_event_ids(
+    session,
+    event_ids: list[str],
+    limit: int,
+    watchlist_path: str | Path | None,
+) -> None:
+    watchlist = _load_watchlist(watchlist_path)
+    if not watchlist:
+        return
+
+    async def append(query) -> None:
+        result = await session.execute(query)
+        for external_event_id in result.scalars():
+            if external_event_id not in event_ids:
+                event_ids.append(external_event_id)
+            if len(event_ids) >= limit:
+                return
+
+    for external_event_id in watchlist["event_ids"]:
+        if len(event_ids) >= limit:
+            return
+        await append(
+            select(PredictionEvent.external_event_id).where(
+                PredictionEvent.status == "OPEN",
+                PredictionEvent.external_event_id == external_event_id,
+            )
+        )
+
+    for external_market_id in watchlist["market_ids"]:
+        if len(event_ids) >= limit:
+            return
+        await append(
+            select(PredictionEvent.external_event_id)
+            .join(PredictionMarket, PredictionMarket.event_id == PredictionEvent.id)
+            .where(
+                PredictionEvent.status == "OPEN",
+                PredictionMarket.external_market_id == external_market_id,
+            )
+        )
+
+    for keyword in watchlist["keywords"]:
+        if len(event_ids) >= limit:
+            return
+        like = f"%{keyword}%"
+        await append(
+            select(PredictionEvent.external_event_id)
+            .join(PredictionMarket, PredictionMarket.event_id == PredictionEvent.id)
+            .where(
+                PredictionEvent.status == "OPEN",
+                or_(
+                    PredictionEvent.question.ilike(like),
+                    PredictionMarket.question.ilike(like),
+                ),
+            )
+            .order_by(PredictionEvent.updated_at.desc())
+        )
+
+
+def _load_watchlist(watchlist_path: str | Path | None) -> dict[str, list[str]]:
+    if watchlist_path is None:
+        return {"event_ids": [], "market_ids": [], "keywords": []}
+    path = Path(watchlist_path)
+    if not path.exists():
+        return {"event_ids": [], "market_ids": [], "keywords": []}
+    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    raw_watchlist = data.get("watchlist") if isinstance(data, dict) else {}
+    if not isinstance(raw_watchlist, dict):
+        raw_watchlist = {}
+    return {
+        "event_ids": _string_list(raw_watchlist.get("event_ids")),
+        "market_ids": _string_list(raw_watchlist.get("market_ids")),
+        "keywords": _string_list(raw_watchlist.get("keywords")),
+    }
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [str(item).strip() for item in value if str(item).strip()]
+
+
+def _default_watchlist_path() -> Path:
+    return Path(get_settings().app_config_path).with_name("watchlist.yaml")
 
 
 def main() -> None:

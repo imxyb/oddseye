@@ -2,10 +2,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+import json
 
+from httpx import AsyncClient, MockTransport, Request, Response
 import pytest
+from sqlalchemy import select
 
+from app.codex.client import CodexClient
+from app.core.config import get_settings
 from app.db.models import (
+    ApiUsageLedger,
+    JobRun,
     ModelSignal,
     PaperAccount,
     PaperPosition,
@@ -13,8 +20,9 @@ from app.db.models import (
     PredictionMarket,
     Venue,
 )
-from app.db.session import Base, create_sessionmaker
-from app.workers.ingest import event_ids_for_sync
+from app.db.session import Base, create_sessionmaker, get_session_factory
+from app.services.usage import DatabaseUsageRecorder
+from app.workers.ingest import _sync_markets, event_ids_for_sync
 
 
 @pytest.mark.asyncio
@@ -68,6 +76,179 @@ async def test_event_ids_for_sync_prioritizes_positions_and_buy_signals(tmp_path
     await sessionmaker.bind.dispose()
 
 
+@pytest.mark.asyncio
+async def test_event_ids_for_sync_prioritizes_watchlist_before_positions(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'watchlist-tiers.db'}")
+    watchlist_path = tmp_path / "watchlist.yaml"
+    watchlist_path.write_text(
+        """
+watchlist:
+  event_ids:
+    - watch-event
+  market_ids: []
+  keywords: []
+""",
+        encoding="utf-8",
+    )
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("9900"))
+        session.add_all([venue, account])
+        await session.flush()
+
+        watch_event = await _event(session, venue.id, "watch-event", days=6)
+        position_event = await _event(session, venue.id, "position-event", days=5)
+        await _market(session, venue.id, watch_event)
+        position_market = await _market(session, venue.id, position_event)
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                market_id=position_market.id,
+                outcome_index=0,
+                quantity=Decimal("10"),
+                avg_price=Decimal("0.50"),
+                mark_price=Decimal("0.50"),
+                status="open",
+            )
+        )
+        await session.commit()
+
+        event_ids = await event_ids_for_sync(
+            session,
+            limit=2,
+            watchlist_path=watchlist_path,
+        )
+
+        assert event_ids == ["watch-event", "position-event"]
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_sync_markets_records_tier_job_and_usage_kind(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / "app.yaml"
+    config_path.write_text(
+        """
+app:
+  timezone: UTC
+auth:
+  users: []
+codex:
+  fetch_profile: light
+radar:
+  max_markets_per_ingest: 50
+""",
+        encoding="utf-8",
+    )
+    watchlist_path = tmp_path / "watchlist.yaml"
+    watchlist_path.write_text(
+        """
+watchlist:
+  event_ids:
+    - watch-event
+  market_ids: []
+  keywords: []
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_CONFIG_PATH", str(config_path))
+    monkeypatch.setenv("DATABASE_URL", f"sqlite+aiosqlite:///{tmp_path / 'tier-sync.db'}")
+    monkeypatch.setenv("CODEX_API_KEY", "test-key")
+    get_settings.cache_clear()
+    get_session_factory.cache_clear()
+
+    codex_requests: list[dict] = []
+
+    def codex_handler(request: Request) -> Response:
+        decoded = json.loads(request.read())
+        codex_requests.append(decoded)
+        return Response(
+            200,
+            json={
+                "data": {
+                    "filterPredictionMarkets": {
+                        "results": [
+                            {
+                                "id": "row-1",
+                                "eventLabel": "BTC",
+                                "status": "OPEN",
+                                "market": {
+                                    "id": "watch-market",
+                                    "eventId": "watch-event",
+                                    "protocol": "POLYMARKET",
+                                    "label": "BTC above 80000",
+                                    "question": "Will BTC be above $80,000?",
+                                    "status": "OPEN",
+                                    "closesAt": "2026-08-01T00:00:00Z",
+                                    "resolvesAt": "2026-08-02T00:00:00Z",
+                                },
+                                "outcome0": {
+                                    "label": "Yes",
+                                    "bestAskCT": "0.61",
+                                    "bestBidCT": "0.59",
+                                    "lastPriceCT": "0.60",
+                                },
+                                "outcome1": {
+                                    "label": "No",
+                                    "bestAskCT": "0.41",
+                                    "bestBidCT": "0.39",
+                                    "lastPriceCT": "0.40",
+                                },
+                            }
+                        ]
+                    }
+                }
+            },
+        )
+
+    mock_http_client = AsyncClient(transport=MockTransport(codex_handler))
+    codex_client = CodexClient(
+        endpoint="https://codex.test/graphql",
+        api_key="test-key",
+        usage_recorder=DatabaseUsageRecorder(),
+        http_client=mock_http_client,
+    )
+    monkeypatch.setattr("app.services.ingestion.create_codex_client", lambda: codex_client)
+
+    sessionmaker = get_session_factory()
+    try:
+        async with sessionmaker.bind.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        async with sessionmaker() as session:
+            venue = Venue(code="POLYMARKET", name="Polymarket")
+            session.add(venue)
+            await session.flush()
+            event = await _event(session, venue.id, "watch-event", days=7)
+            await _market(session, venue.id, event, external_market_id="watch-market")
+            await session.commit()
+
+        await _sync_markets(
+            limit=1,
+            job_name="sync_hot_markets",
+            usage_kind="hot_snapshot",
+            watchlist_path=watchlist_path,
+        )
+
+        async with sessionmaker() as session:
+            job = await session.scalar(select(JobRun))
+            ledger = await session.scalar(select(ApiUsageLedger))
+
+        assert codex_requests[0]["variables"]["eventIds"] == ["watch-event"]
+        assert job is not None
+        assert job.job_name == "sync_hot_markets"
+        assert job.codex_requests_used == 1
+        assert ledger is not None
+        assert ledger.kind == "hot_snapshot"
+        assert ledger.metadata_json["fetch_profile"] == "light"
+    finally:
+        await codex_client.aclose()
+        await mock_http_client.aclose()
+        await sessionmaker.bind.dispose()
+        get_session_factory.cache_clear()
+        get_settings.cache_clear()
+
+
 async def _event(session, venue_id: str, external_id: str, days: int) -> PredictionEvent:
     event = PredictionEvent(
         venue_id=venue_id,
@@ -83,11 +264,16 @@ async def _event(session, venue_id: str, external_id: str, days: int) -> Predict
     return event
 
 
-async def _market(session, venue_id: str, event: PredictionEvent) -> PredictionMarket:
+async def _market(
+    session,
+    venue_id: str,
+    event: PredictionEvent,
+    external_market_id: str | None = None,
+) -> PredictionMarket:
     market = PredictionMarket(
         event_id=event.id,
         venue_id=venue_id,
-        external_market_id=f"{event.external_event_id}-market",
+        external_market_id=external_market_id or f"{event.external_event_id}-market",
         protocol="POLYMARKET",
         question=event.question,
         status="OPEN",

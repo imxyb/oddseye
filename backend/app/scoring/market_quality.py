@@ -58,6 +58,7 @@ def activity_score(volume_usd_24h: float | None, trades_24h: float | None) -> fl
 
 def resolution_clarity_score(inputs: QualityInputs, now: datetime) -> float:
     score = 0.0
+    resolves_at = comparable_datetime(inputs.resolves_at, now)
     if inputs.resolves_at is not None and inputs.closes_at is not None and inputs.venue_url:
         score += 30
     words = {word.strip(" ,.!?;:").lower() for word in inputs.question.split()}
@@ -68,7 +69,7 @@ def resolution_clarity_score(inputs: QualityInputs, now: datetime) -> float:
     categories = {category.lower() for category in inputs.categories}
     if categories.intersection(SUPPORTED_CATEGORIES):
         score += 10
-    if inputs.status.upper() == "OPEN" and inputs.resolves_at and inputs.resolves_at > now:
+    if inputs.status.upper() == "OPEN" and resolves_at and resolves_at > now:
         score += 20
     return clamp(score)
 
@@ -90,6 +91,7 @@ def modelability_score(question: str, categories: list[str]) -> float:
 
 
 def time_score(closes_at: datetime | None, now: datetime) -> float:
+    closes_at = comparable_datetime(closes_at, now)
     if closes_at is None:
         return 0
     delta = closes_at - now
@@ -105,6 +107,7 @@ def time_score(closes_at: datetime | None, now: datetime) -> float:
 
 
 def compute_market_quality(inputs: QualityInputs, now: datetime) -> QualityResult:
+    closes_at = comparable_datetime(inputs.closes_at, now)
     components = {
         "liquidity": liquidity_score(inputs.liquidity_usd),
         "spread": spread_score(inputs.spread_ct),
@@ -125,7 +128,7 @@ def compute_market_quality(inputs: QualityInputs, now: datetime) -> QualityResul
         reason_codes.append("SPREAD_OK")
     if inputs.status.upper() != "OPEN":
         risk_flags.append("NOT_OPEN")
-    if inputs.closes_at is None or inputs.closes_at <= now + timedelta(minutes=30):
+    if closes_at is None or closes_at <= now + timedelta(minutes=30):
         risk_flags.append("CLOSES_TOO_SOON")
     if components["resolution_clarity"] < 60:
         risk_flags.append("RESOLUTION_UNCLEAR")
@@ -150,8 +153,8 @@ def compute_market_quality(inputs: QualityInputs, now: datetime) -> QualityResul
         and inputs.spread_ct is not None
         and inputs.spread_ct <= 0.08
         and inputs.status.upper() == "OPEN"
-        and inputs.closes_at is not None
-        and inputs.closes_at > now + timedelta(minutes=30)
+        and closes_at is not None
+        and closes_at > now + timedelta(minutes=30)
         and components["modelability"] >= 60
         and components["resolution_clarity"] >= 60
     )
@@ -163,3 +166,12 @@ def compute_market_quality(inputs: QualityInputs, now: datetime) -> QualityResul
         passes_paper_gate=passes_gate,
     )
 
+
+def comparable_datetime(value: datetime | None, reference: datetime) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is None and reference.tzinfo is not None:
+        return value.replace(tzinfo=reference.tzinfo)
+    if value.tzinfo is not None and reference.tzinfo is None:
+        return value.replace(tzinfo=None)
+    return value
