@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+
+import pytest
+
+from app.db.models import (
+    PaperAccount,
+    PaperPosition,
+    PredictionEvent,
+    PredictionMarket,
+    Venue,
+)
+from app.db.session import Base, create_sessionmaker
+from app.services.paper_trading import performance
+
+
+@pytest.mark.asyncio
+async def test_performance_equity_includes_open_position_mark_value(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'performance.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("9942.8575"))
+        session.add_all([venue, account])
+        await session.flush()
+        event = PredictionEvent(
+            venue_id=venue.id,
+            external_event_id="event",
+            protocol="POLYMARKET",
+            question="Will BTC be above $80,000?",
+            categories=["crypto"],
+            status="OPEN",
+            closes_at=datetime.now(UTC) + timedelta(days=10),
+        )
+        session.add(event)
+        await session.flush()
+        market = PredictionMarket(
+            event_id=event.id,
+            venue_id=venue.id,
+            external_market_id="market",
+            protocol="POLYMARKET",
+            question=event.question,
+            status="OPEN",
+        )
+        session.add(market)
+        await session.flush()
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                market_id=market.id,
+                outcome_index=0,
+                quantity=Decimal("100"),
+                avg_price=Decimal("0.571425"),
+                mark_price=Decimal("0.62"),
+                realized_pnl=Decimal("0"),
+                unrealized_pnl=Decimal("4.8575"),
+                status="open",
+            )
+        )
+        await session.commit()
+
+        result = await performance(session)
+
+        assert result["cash"] == 9942.8575
+        assert result["position_value"] == 62.0
+        assert result["equity"] == 10004.8575
+    await sessionmaker.bind.dispose()

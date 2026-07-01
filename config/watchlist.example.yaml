@@ -1,0 +1,9 @@
+watchlist:
+  market_ids: []
+  event_ids: []
+  keywords:
+    - BTC
+    - ETH
+    - CPI
+    - FOMC
+

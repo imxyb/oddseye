@@ -1,0 +1,116 @@
+x-backend-env: &backend-env
+  APP_ENV: ${APP_ENV:-dev}
+  APP_CONFIG_PATH: ${APP_CONFIG_PATH:-/config/app.example.yaml}
+  DATABASE_URL: ${DATABASE_URL:-postgresql+psycopg://radar:radar@postgres:5432/radar}
+  REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+  CODEX_API_KEY: ${CODEX_API_KEY:-replace_me}
+  JWT_SECRET: ${JWT_SECRET:-replace_with_long_random_string_at_least_32_bytes}
+  JWT_EXPIRES_DAYS: ${JWT_EXPIRES_DAYS:-7}
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: radar
+      POSTGRES_PASSWORD: radar
+      POSTGRES_DB: radar
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+
+  redis:
+    image: redis:7
+    ports:
+      - "127.0.0.1:6379:6379"
+
+  api:
+    build: ./backend
+    env_file:
+      - path: .env.example
+      - path: .env
+        required: false
+    environment: *backend-env
+    volumes:
+      - ./config:/config:ro
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    depends_on:
+      - postgres
+      - redis
+    ports:
+      - "8000:8000"
+
+  worker-ingest:
+    build: ./backend
+    env_file:
+      - path: .env.example
+      - path: .env
+        required: false
+    environment: *backend-env
+    volumes:
+      - ./config:/config:ro
+    command: python -m app.workers.ingest
+    depends_on:
+      - postgres
+      - redis
+
+  worker-signal:
+    build: ./backend
+    env_file:
+      - path: .env.example
+      - path: .env
+        required: false
+    environment: *backend-env
+    volumes:
+      - ./config:/config:ro
+    command: python -m app.workers.signal
+    depends_on:
+      - postgres
+      - redis
+
+  worker-paper:
+    build: ./backend
+    env_file:
+      - path: .env.example
+      - path: .env
+        required: false
+    environment: *backend-env
+    volumes:
+      - ./config:/config:ro
+    command: python -m app.workers.paper_mark
+    depends_on:
+      - postgres
+      - redis
+
+  worker-resolution:
+    build: ./backend
+    env_file:
+      - path: .env.example
+      - path: .env
+        required: false
+    environment: *backend-env
+    volumes:
+      - ./config:/config:ro
+    command: python -m app.workers.resolution
+    depends_on:
+      - postgres
+      - redis
+
+  worker-usage:
+    build: ./backend
+    env_file:
+      - path: .env.example
+      - path: .env
+        required: false
+    environment: *backend-env
+    volumes:
+      - ./config:/config:ro
+    command: python -m app.workers.usage
+    depends_on:
+      - postgres
+      - redis
+
+volumes:
+  postgres_data:

@@ -1,0 +1,8 @@
+categories:
+  crypto:
+    codex_slugs: ["crypto"]
+    keywords: ["BTC", "ETH", "SOL", "Bitcoin", "Ethereum", "Solana"]
+  economics:
+    codex_slugs: ["economics", "finance"]
+    keywords: ["CPI", "FOMC", "Fed", "rates", "unemployment", "inflation"]
+

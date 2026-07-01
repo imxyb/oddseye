@@ -1,0 +1,40 @@
+export function formatCurrency(value?: number | null): string {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return "-";
+  }
+
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: value >= 1000 ? 0 : 2,
+  }).format(value);
+}
+
+export function formatPercent(value?: number | null): string {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return "-";
+  }
+
+  return `${Math.round(value * 100)}%`;
+}
+
+export function formatCents(value?: number | null): string {
+  if (value === undefined || value === null || Number.isNaN(value)) {
+    return "-";
+  }
+
+  return `${Math.round(value * 100)}c`;
+}
+
+export function formatDate(value?: string | null): string {
+  if (!value) {
+    return "-";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}

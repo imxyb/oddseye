@@ -1,0 +1,66 @@
+app:
+  name: prediction-radar
+  timezone: Asia/Singapore
+  base_currency: USDC
+
+auth:
+  users:
+    - username: admin
+      password_hash: "$2b$12$replace_with_bcrypt_hash"
+      role: admin
+  token_expires_days: 7
+  ip_allowlist: []
+
+codex:
+  endpoint: "https://graph.codex.io/graphql"
+  timeout_seconds: 20
+  max_retries: 3
+  usage_tracking_enabled: true
+  usage_policy: advisory_only
+  global_monthly_reference_budget: 1000000
+  external_daily_usage_estimate: 12000
+  radar_daily_target_requests: 2000
+  radar_daily_review_threshold: 5000
+  radar_monthly_review_threshold: 150000
+  fetch_profile: light
+
+radar:
+  enabled_categories:
+    - crypto
+    - economics
+    - finance
+  protocols:
+    - POLYMARKET
+    - KALSHI
+  min_liquidity_usd: 1000
+  min_volume_usd_24h: 500
+  max_spread_ct: 0.08
+  max_markets_per_ingest: 300
+
+paper:
+  starting_cash: 10000
+  currency: USDC
+  fee_bps: 0
+  slippage_bps: 25
+  max_position_pct: 0.03
+  max_daily_loss_pct: 0.03
+  max_category_exposure_pct: 0.15
+  allow_short: false
+
+jobs:
+  categories_refresh_cron: "0 3 * * *"
+  market_discovery_seconds: 1800
+  hot_market_snapshot_seconds: 300
+  warm_market_snapshot_seconds: 1800
+  cold_market_snapshot_seconds: 21600
+  signal_seconds: 300
+  paper_mark_seconds: 300
+  resolution_poll_seconds: 7200
+
+ingestion_tiers:
+  hot_watchlist_max_markets: 30
+  warm_pool_max_markets: 120
+  cold_pool_max_markets: 500
+  bars_fetch_mode: on_demand
+  manual_refresh_enabled: true
+

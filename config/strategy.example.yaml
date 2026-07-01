@@ -1,0 +1,13 @@
+crypto_threshold_v1:
+  enabled: true
+  min_edge: 0.07
+  min_parser_confidence: 0.75
+  default_annualized_volatility:
+    BTC: 0.45
+    ETH: 0.55
+    SOL: 0.75
+
+macro_calendar_v1:
+  enabled: true
+  mode: observe_and_manual_paper_only
+
