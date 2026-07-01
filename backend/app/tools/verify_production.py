@@ -287,10 +287,12 @@ def verify_production(
     )
 
     performance = production_client.request("GET", "/paper/performance", token=token)
-    required_performance_keys = {"cash", "equity", "win_rate", "max_drawdown", "total_trades"}
-    missing_keys = sorted(required_performance_keys - set(performance))
-    _require(not missing_keys, "paper_performance", f"missing keys: {', '.join(missing_keys)}")
-    checks.append(VerificationCheck("paper_performance", True, "paper account metrics returned"))
+    _require_paper_performance(performance)
+    checks.append(VerificationCheck("paper_performance", True, "cash, PnL, win rate, and drawdown returned"))
+
+    positions = production_client.request("GET", "/paper/positions", token=token)
+    position_count = _require_paper_positions(positions)
+    checks.append(VerificationCheck("paper_positions", True, f"{position_count} positions returned with PnL fields"))
 
     trades_csv = production_client.request_text("GET", "/paper/trades.csv", token=token)
     trade_count = _require_trade_traceability(trades_csv)
@@ -605,6 +607,49 @@ def _parse_iso_datetime(value: str, name: str, label: str) -> datetime:
         return datetime.fromisoformat(value)
     except ValueError as exc:
         raise ProductionVerificationError(f"{name}: invalid {label}") from exc
+
+
+def _require_paper_performance(payload: dict[str, Any]) -> None:
+    required_fields = {
+        "cash",
+        "equity",
+        "position_value",
+        "realized_pnl",
+        "unrealized_pnl",
+        "win_rate",
+        "max_drawdown",
+        "total_trades",
+    }
+    missing_fields = sorted(required_fields - set(payload))
+    _require(not missing_fields, "paper_performance", f"missing keys: {', '.join(missing_fields)}")
+    for field in sorted(required_fields):
+        _require_number(payload.get(field), "paper_performance", field)
+
+
+def _require_paper_positions(payload: dict[str, Any]) -> int:
+    items = payload.get("items")
+    _require(isinstance(items, list), "paper_positions", "missing items list")
+    _require(len(items) > 0, "paper_positions", "expected at least one position")
+    for index, item in enumerate(items, start=1):
+        _require(isinstance(item, dict), "paper_positions", f"row {index} is not an object")
+        for field in ("position_id", "market_id", "status"):
+            value = item.get(field)
+            _require(isinstance(value, str) and value, "paper_positions", f"row {index} missing {field}")
+        outcome_index = item.get("outcome_index")
+        _require(
+            isinstance(outcome_index, int) and not isinstance(outcome_index, bool),
+            "paper_positions",
+            f"row {index} missing outcome_index",
+        )
+        for field in ("quantity", "avg_price", "realized_pnl", "unrealized_pnl"):
+            _require_number(item.get(field), "paper_positions", f"row {index} {field}")
+        if item.get("status") == "open":
+            _require_number(item.get("mark_price"), "paper_positions", f"row {index} mark_price")
+    return len(items)
+
+
+def _require_number(value: Any, name: str, label: str) -> None:
+    _require(isinstance(value, int | float) and not isinstance(value, bool), name, f"missing numeric {label}")
 
 
 def _decimal_payload_value(value: Any, name: str, label: str) -> Decimal:

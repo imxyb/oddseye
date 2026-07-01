@@ -185,9 +185,28 @@ def _successful_responses() -> dict[tuple[str, str], dict]:
         ("GET", "/paper/performance"): {
             "cash": 1000,
             "equity": 1000,
+            "position_value": 5,
+            "realized_pnl": 0,
+            "unrealized_pnl": 0.1,
             "win_rate": 0,
             "max_drawdown": 0,
             "total_trades": 0,
+        },
+        ("GET", "/paper/positions"): {
+            "items": [
+                {
+                    "position_id": "position-1",
+                    "market_id": "market-1",
+                    "outcome_index": 0,
+                    "quantity": 0.02,
+                    "avg_price": 0.5,
+                    "mark_price": 0.48,
+                    "realized_pnl": 0,
+                    "unrealized_pnl": -0.0004,
+                    "status": "open",
+                }
+            ],
+            "total": 1,
         },
     }
 
@@ -235,6 +254,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "usage",
         "scheduled_jobs",
         "paper_performance",
+        "paper_positions",
         "paper_trade_traceability",
     ]
     assert all(check.ok for check in checks)
@@ -273,6 +293,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ),
         ("GET", "/settings/usage", "token-123", None),
         ("GET", "/paper/performance", "token-123", None),
+        ("GET", "/paper/positions", "token-123", None),
         ("GET", "/paper/trades.csv", "token-123", None),
     ]
 
@@ -466,6 +487,40 @@ def test_verify_production_rejects_missing_ingest_job_run() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="scheduled_jobs"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_performance_without_pnl_fields() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/paper/performance")] = {
+        "cash": 1000,
+        "equity": 1000,
+        "win_rate": 0,
+        "max_drawdown": 0,
+        "total_trades": 0,
+    }
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="paper_performance"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_missing_paper_positions() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/paper/positions")] = {"items": [], "total": 0}
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="paper_positions"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",

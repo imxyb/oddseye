@@ -41,6 +41,8 @@ are not blocked by budget code.
 Paper trading review endpoints:
 
 - `GET /paper/review` returns strategy/category rollups and trade rows.
+- `GET /paper/positions` returns current paper positions with mark price and PnL.
+- `GET /paper/performance` returns cash, position value, PnL, win rate, and drawdown.
 - `GET /paper/trades.csv` exports fills with `signal_id` and `snapshot_id` traceability.
 - `POST /markets/{market_id}/refresh` refreshes the current market event from
   Codex and records the request as `manual_refresh`.
@@ -122,7 +124,7 @@ API image. It checks health, login, Radar live data, Crypto and Macro/Economics
 category data, documented Radar sort dimensions, market detail quotes, quality
 score explanations, chart bars, active `crypto_threshold_v1` crypto threshold
 signals, usage counters, recent ingestion job runs, paper performance metrics,
-and paper trade traceability in one repeatable command:
+paper positions, and paper trade traceability in one repeatable command:
 
 The verifier creates tiny paper BUY orders through both the manual order API and
 the signal order API so V1 paper-trading flows are checked against production
@@ -202,7 +204,12 @@ curl -fsS -X POST "https://oddseye.fun/signals/REPLACE_WITH_SIGNAL_ID/paper-orde
   --data '{"notional":"0.01","limit_price":"REPLACE_WITH_EXECUTABLE_PRICE"}'
 
 curl -fsS "https://oddseye.fun/paper/performance" \
-  -H "Authorization: Bearer $TOKEN"
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); assert all(k in d for k in ("cash","equity","position_value","realized_pnl","unrealized_pnl","win_rate","max_drawdown","total_trades")); print("paper performance ok")'
+
+curl -fsS "https://oddseye.fun/paper/positions" \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -c 'import json,sys; items=json.load(sys.stdin)["items"]; assert items; assert all(all(k in i for k in ("position_id","market_id","outcome_index","quantity","avg_price","realized_pnl","unrealized_pnl","status")) for i in items); print("paper positions ok")'
 
 curl -fsS "https://oddseye.fun/paper/trades.csv" \
   -H "Authorization: Bearer $TOKEN"
@@ -227,6 +234,9 @@ Expected production state:
   once supported assets are enriched with public BTC/ETH/SOL market data.
 - Market detail exposes a manual refresh action for stale prices; it should write
   a `manual_refresh` row to `api_usage_ledger`.
+- `/paper/performance` exposes cash, position value, realized/unrealized PnL,
+  win rate, drawdown, and trade count; `/paper/positions` exposes current
+  position quantity, average price, mark price, and PnL.
 - Paper orders use bid/ask based fills and can be traced through
   `signal_id`, `snapshot_id`, and `price` in `/paper/trades.csv`.
 
