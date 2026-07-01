@@ -39,7 +39,8 @@ async def usage_summary(session: AsyncSession) -> dict[str, Any]:
     records = list(result.scalars())
     today = [record for record in records if _ensure_aware(record.ts) >= start_day]
     month = [record for record in records if _ensure_aware(record.ts) >= start_month]
-    settings = get_settings().config.codex
+    config = get_settings().config
+    settings = config.codex
     return {
         "provider": "codex",
         "today_requests": sum(record.request_count for record in today),
@@ -53,6 +54,7 @@ async def usage_summary(session: AsyncSession) -> dict[str, Any]:
         "radar_monthly_review_threshold": settings.radar_monthly_review_threshold,
         "external_daily_usage_estimate": settings.external_daily_usage_estimate,
         "global_monthly_reference_budget": settings.global_monthly_reference_budget,
+        "jobs": config.jobs.model_dump(),
     }
 
 
@@ -66,4 +68,3 @@ def usage_hint_from_summary(summary: dict[str, Any]) -> dict[str, Any]:
 
 def _ensure_aware(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
-

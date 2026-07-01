@@ -1,7 +1,9 @@
+import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { getSettingsUsage, settingsKeys } from "../../src/api/settings";
 import { useAuthStore } from "../../src/stores/authStore";
 import { colors, spacing } from "../../src/theme";
 import { buildSettingsInfoRows } from "../../src/utils/settingsInfo";
@@ -10,7 +12,11 @@ export default function SettingsScreen() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "Not configured";
-  const apiRows = buildSettingsInfoRows(apiBaseUrl);
+  const settingsQuery = useQuery({
+    queryKey: settingsKeys.usage,
+    queryFn: getSettingsUsage,
+  });
+  const apiRows = buildSettingsInfoRows(apiBaseUrl, settingsQuery.data);
 
   async function handleLogout() {
     await logout();

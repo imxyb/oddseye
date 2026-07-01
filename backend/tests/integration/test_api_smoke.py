@@ -30,6 +30,9 @@ codex:
   usage_tracking_enabled: true
   usage_policy: advisory_only
   fetch_profile: light
+jobs:
+  hot_market_snapshot_seconds: 120
+  signal_seconds: 900
 paper:
   starting_cash: 10000
   slippage_bps: 25
@@ -155,6 +158,8 @@ paper:
         settings_response = await client.get("/settings/usage", headers=headers)
         assert settings_response.status_code == 200
         assert settings_response.json()["fetch_profile"] == "light"
+        assert settings_response.json()["jobs"]["hot_market_snapshot_seconds"] == 120
+        assert settings_response.json()["jobs"]["signal_seconds"] == 900
 
         order = await client.post(
             "/paper/orders",

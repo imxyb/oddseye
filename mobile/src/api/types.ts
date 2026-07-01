@@ -107,6 +107,33 @@ export interface MarketRefreshResponse {
   market: MarketDetail;
 }
 
+export interface JobsSettings {
+  categories_refresh_cron?: string;
+  market_discovery_seconds?: number;
+  hot_market_snapshot_seconds?: number;
+  warm_market_snapshot_seconds?: number;
+  cold_market_snapshot_seconds?: number;
+  signal_seconds?: number;
+  paper_mark_seconds?: number;
+  resolution_poll_seconds?: number;
+}
+
+export interface SettingsUsage {
+  provider: string;
+  today_requests: number;
+  month_requests: number;
+  today_failed: number;
+  month_failed: number;
+  fetch_profile: string;
+  usage_policy: string;
+  radar_daily_target_requests: number;
+  radar_daily_review_threshold: number;
+  radar_monthly_review_threshold: number;
+  external_daily_usage_estimate: number;
+  global_monthly_reference_budget: number;
+  jobs?: JobsSettings;
+}
+
 export interface Signal {
   signal_id: string;
   market_id: string;
