@@ -41,16 +41,27 @@ async def job_run(session: AsyncSession, job_name: str) -> AsyncIterator[JobRun]
     run = JobRun(job_name=job_name, started_at=utcnow(), status="running")
     session.add(run)
     await session.flush()
+    run_id = run.id
+    await session.commit()
     try:
         yield run
     except Exception as exc:
-        run.status = "failed"
-        run.error_message = str(exc)
-        run.finished_at = utcnow()
+        await session.rollback()
+        persisted_run = await session.get(JobRun, run_id)
+        if persisted_run is None:
+            raise
+        persisted_run.status = "failed"
+        persisted_run.error_message = str(exc)
+        persisted_run.finished_at = utcnow()
+        await session.commit()
         raise
     else:
-        run.status = "success"
-        run.finished_at = utcnow()
+        persisted_run = await session.get(JobRun, run_id)
+        if persisted_run is None:
+            raise RuntimeError(f"job run disappeared before completion: {run_id}")
+        persisted_run.status = "success"
+        persisted_run.finished_at = utcnow()
+        await session.commit()
 
 
 async def refresh_categories(

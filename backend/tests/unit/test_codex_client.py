@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -63,3 +64,43 @@ async def test_codex_client_records_failed_usage() -> None:
     assert len(recorder.records) == 1
     assert recorder.records[0].kind == "bars"
     assert recorder.records[0].status == "failed"
+
+
+@pytest.mark.asyncio
+async def test_event_markets_clamps_limit_to_codex_maximum() -> None:
+    captured_variables: list[dict[str, Any]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        captured_variables.append(payload["variables"])
+        return httpx.Response(200, json={"data": {"filterPredictionMarkets": {"results": []}}})
+
+    client = CodexClient(
+        endpoint="https://graph.codex.io/graphql",
+        api_key="secret",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    await client.event_markets(["event-1"], limit=500)
+
+    assert captured_variables == [{"eventIds": ["event-1"], "limit": 200}]
+
+
+@pytest.mark.asyncio
+async def test_discover_events_clamps_limit_to_codex_maximum() -> None:
+    captured_variables: list[dict[str, Any]] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        captured_variables.append(payload["variables"])
+        return httpx.Response(200, json={"data": {"filterPredictionEvents": {"results": []}}})
+
+    client = CodexClient(
+        endpoint="https://graph.codex.io/graphql",
+        api_key="secret",
+        http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+    )
+
+    await client.discover_events(["crypto"], limit=500)
+
+    assert captured_variables == [{"categories": ["crypto"], "limit": 200, "offset": 0}]

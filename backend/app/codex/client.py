@@ -9,6 +9,8 @@ import httpx
 from app.codex import queries
 from app.core.time import utcnow
 
+CODEX_MAX_FILTER_LIMIT = 200
+
 
 @dataclass(frozen=True)
 class UsageRecord:
@@ -92,7 +94,7 @@ class CodexClient:
         return await self.call(
             "discovery",
             queries.DISCOVER_EVENTS,
-            {"categories": categories, "limit": limit, "offset": offset},
+            {"categories": categories, "limit": _codex_limit(limit), "offset": offset},
             job_run_id=job_run_id,
         )
 
@@ -102,7 +104,7 @@ class CodexClient:
         return await self.call(
             "market_snapshot",
             queries.EVENT_MARKETS,
-            {"eventIds": event_ids, "limit": limit},
+            {"eventIds": event_ids, "limit": _codex_limit(limit)},
             job_run_id=job_run_id,
         )
 
@@ -148,3 +150,7 @@ class CodexClient:
                     break
                 await asyncio.sleep(min(0.25 * (2**attempt), 2.0))
         raise RuntimeError("Codex request failed") from last_exc
+
+
+def _codex_limit(limit: int) -> int:
+    return min(limit, CODEX_MAX_FILTER_LIMIT)
