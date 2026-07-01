@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -8,7 +9,13 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import utcnow
-from app.db.models import MarketSnapshot, ModelSignal, PredictionEvent, PredictionMarket
+from app.db.models import (
+    MarketSnapshot,
+    ModelSignal,
+    PaperPosition,
+    PredictionEvent,
+    PredictionMarket,
+)
 from app.services.asset_market_data import (
     AssetMarketData,
     AssetMarketDataProvider,
@@ -20,6 +27,7 @@ from app.strategies.crypto_threshold import (
     CryptoThresholdStrategy,
     parse_crypto_threshold,
 )
+from app.strategies.base import StrategySignal
 
 
 async def list_signals(
@@ -131,6 +139,7 @@ async def compute_crypto_signals(
                 snapshot_id=snapshot.id,
             )
         )
+        signal = await _position_adjusted_signal(session, signal, snapshot)
         session.add(
             ModelSignal(
                 market_id=market.id,
@@ -204,6 +213,61 @@ def _strategy_inputs(
             "source": source,
         },
     }
+
+
+async def _position_adjusted_signal(
+    session: AsyncSession,
+    signal: StrategySignal,
+    snapshot: MarketSnapshot,
+) -> StrategySignal:
+    position = await session.scalar(
+        select(PaperPosition)
+        .where(
+            PaperPosition.market_id == signal.market_id,
+            PaperPosition.status == "open",
+            PaperPosition.quantity > 0,
+        )
+        .order_by(PaperPosition.updated_at.desc())
+    )
+    if position is None:
+        return signal
+    if signal.action == "BUY" and signal.side in {"YES", "NO"}:
+        target_index = 0 if signal.side == "YES" else 1
+        if position.outcome_index == target_index:
+            return replace(
+                signal,
+                action="HOLD",
+                executable_price=None,
+                suggested_notional=None,
+                reason_codes=[*signal.reason_codes, "HOLD_EXISTING_POSITION"],
+            )
+        exit_price = _exit_price(snapshot, position.outcome_index)
+        return replace(
+            signal,
+            action="EXIT",
+            side=_side_for_outcome(position.outcome_index),
+            executable_price=exit_price,
+            suggested_notional=position.quantity * exit_price if exit_price is not None else None,
+            reason_codes=[*signal.reason_codes, "EXIT_OPPOSING_MODEL_EDGE"],
+        )
+    if signal.action == "OBSERVE":
+        return replace(
+            signal,
+            action="HOLD",
+            side=_side_for_outcome(position.outcome_index),
+            executable_price=None,
+            suggested_notional=None,
+            reason_codes=[*signal.reason_codes, "HOLD_EXISTING_POSITION"],
+        )
+    return signal
+
+
+def _side_for_outcome(outcome_index: int) -> str:
+    return "YES" if outcome_index == 0 else "NO"
+
+
+def _exit_price(snapshot: MarketSnapshot, outcome_index: int) -> Decimal | None:
+    return snapshot.outcome0_best_bid if outcome_index == 0 else snapshot.outcome1_best_bid
 
 
 def _signal_item(signal: ModelSignal, market: PredictionMarket, event: PredictionEvent) -> dict[str, Any]:
