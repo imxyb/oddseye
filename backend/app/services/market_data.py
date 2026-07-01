@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import utcnow
@@ -60,9 +60,11 @@ async def latest_snapshot_for_market(
 
 
 async def latest_signal_for_market(session: AsyncSession, market_id: str) -> ModelSignal | None:
+    now = utcnow()
     result = await session.execute(
         select(ModelSignal)
         .where(ModelSignal.market_id == market_id)
+        .where(or_(ModelSignal.expires_at.is_(None), ModelSignal.expires_at > now))
         .order_by(ModelSignal.ts.desc())
         .limit(1)
     )

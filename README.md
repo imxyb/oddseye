@@ -69,17 +69,32 @@ API_BIND_HOST=127.0.0.1
 API_PORT=8000
 ```
 
-3. Create `config/app.yaml` from `config/app.example.yaml`, set the bcrypt
-password hash in `auth.users`, and keep secrets out of mobile files.
+3. Provision host PostgreSQL and Redis. Production compose intentionally does not
+start PostgreSQL or Redis; keep them bound to localhost/private networking and
+point `DATABASE_URL` / `REDIS_URL` at those host services.
 
-4. Run migrations and start services:
+4. Create `config/app.yaml` from `config/app.example.yaml`, generate a bcrypt
+password hash, set it in `auth.users`, and keep secrets out of mobile files:
+
+```bash
+cd /root/oddseye/backend
+python -m app.tools.hash_password
+```
+
+For public deployments, also set `auth.ip_allowlist` to your allowed public
+CIDR(s), plus any trusted proxy/loopback ranges you need for local health checks.
+Leave it empty only on a private network or while intentionally testing public
+access.
+
+5. Run migrations and start services:
 
 ```bash
 docker compose -f docker-compose.prod.yml run --rm api alembic upgrade head
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-5. Add the domain to Caddy on the same host:
+6. Add the domain to Caddy on the same host. Caddy is the HTTPS reverse proxy for
+this deployment and replaces the Nginx example in the V1 engineering document:
 
 ```caddyfile
 oddseye.fun {
@@ -90,7 +105,7 @@ oddseye.fun {
 If `API_BIND_HOST` is set to a different local interface, use that same host in
 `reverse_proxy`.
 
-6. Configure the iOS app API base URL:
+7. Configure the iOS app API base URL:
 
 ```bash
 cd mobile
@@ -147,6 +162,10 @@ npx expo start
 For Expo Go on an iPhone against local dev, set `EXPO_PUBLIC_API_BASE_URL` to
 the computer LAN IP, not `localhost`. For the deployed backend, set it to
 `https://oddseye.fun`.
+
+V1's supported mobile development path is Expo Go. Any generated `mobile/ios`
+directory is local-only for ad hoc native/Xcode experiments and is intentionally
+ignored by git.
 
 ## Verification
 

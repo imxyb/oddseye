@@ -1,9 +1,10 @@
 from __future__ import annotations
 
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import utcnow
@@ -28,10 +29,12 @@ async def list_signals(
     min_edge: Decimal | None = None,
     limit: int = 50,
 ) -> dict[str, Any]:
+    now = utcnow()
     query = (
         select(ModelSignal, PredictionMarket, PredictionEvent)
         .join(PredictionMarket, ModelSignal.market_id == PredictionMarket.id)
         .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
+        .where(or_(ModelSignal.expires_at.is_(None), ModelSignal.expires_at > now))
         .order_by(ModelSignal.ts.desc())
     )
     if action:
@@ -60,6 +63,8 @@ async def create_order_from_signal(
     signal = await session.get(ModelSignal, signal_id)
     if signal is None:
         raise ValueError("signal not found")
+    if signal.expires_at is not None and _aware(signal.expires_at) <= utcnow():
+        raise ValueError("signal expired")
     if signal.action != "BUY" or signal.side not in {"YES", "NO"}:
         raise ValueError("signal is not orderable")
     outcome_index = 0 if signal.side == "YES" else 1
@@ -223,3 +228,9 @@ def _signal_item(signal: ModelSignal, market: PredictionMarket, event: Predictio
 
 def _decimal(value: Decimal | None) -> float | None:
     return None if value is None else float(value)
+
+
+def _aware(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=utcnow().tzinfo)
+    return value

@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
+from sqlalchemy import select
 
 from app.db.models import (
     MarketSnapshot,
@@ -177,6 +178,77 @@ async def test_manual_sell_without_inventory_is_rejected_without_cash_change(tmp
 
 
 @pytest.mark.asyncio
+async def test_expired_signal_cannot_create_paper_order(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'expired-signal.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("10000"))
+        session.add_all([venue, account])
+        await session.flush()
+        event = PredictionEvent(
+            venue_id=venue.id,
+            external_event_id="event",
+            protocol="POLYMARKET",
+            question="Will BTC be above $80,000?",
+            categories=["crypto"],
+            status="OPEN",
+            closes_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        session.add(event)
+        await session.flush()
+        market = PredictionMarket(
+            event_id=event.id,
+            venue_id=venue.id,
+            external_market_id="market",
+            protocol="POLYMARKET",
+            question=event.question,
+            status="OPEN",
+            closes_at=event.closes_at,
+        )
+        session.add(market)
+        await session.flush()
+        session.add_all(
+            [
+                MarketSnapshot(
+                    market_id=market.id,
+                    ts=datetime.now(UTC),
+                    outcome1_best_bid=Decimal("0.40"),
+                    outcome1_best_ask=Decimal("0.42"),
+                    market_quality_score=Decimal("80"),
+                ),
+                ModelSignal(
+                    market_id=market.id,
+                    ts=datetime.now(UTC) - timedelta(minutes=10),
+                    strategy_code="crypto_threshold_v1",
+                    action="BUY",
+                    side="NO",
+                    executable_price=Decimal("0.42"),
+                    edge=Decimal("0.12"),
+                    confidence=Decimal("0.80"),
+                    market_quality_score=Decimal("80"),
+                    reason_codes=[],
+                    risk_flags=[],
+                    expires_at=datetime.now(UTC) - timedelta(minutes=1),
+                ),
+            ]
+        )
+        await session.commit()
+        signal = await session.scalar(select(ModelSignal))
+
+        with pytest.raises(ValueError, match="signal expired"):
+            await create_order_from_signal(
+                session,
+                signal_id=signal.id,
+                account_id=account.id,
+                notional=Decimal("5"),
+                limit_price=Decimal("0.42"),
+            )
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
 async def test_new_buy_is_rejected_when_single_market_risk_would_exceed_limit(tmp_path) -> None:
     sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'market-risk.db'}")
     async with sessionmaker.bind.begin() as conn:
@@ -246,6 +318,78 @@ async def test_new_buy_is_rejected_when_single_market_risk_would_exceed_limit(tm
 
         assert response["order"]["status"] == "rejected"
         assert response["order"]["reason"] == "market_exposure_exceeds_5pct_equity"
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_market_risk_uses_cash_plus_open_position_mark_value_as_equity(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'equity-risk.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("9700"))
+        session.add_all([venue, account])
+        await session.flush()
+        event = PredictionEvent(
+            venue_id=venue.id,
+            external_event_id="event",
+            protocol="POLYMARKET",
+            question="Will BTC be above $80,000?",
+            categories=["crypto"],
+            status="OPEN",
+            closes_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        session.add(event)
+        await session.flush()
+        market = PredictionMarket(
+            event_id=event.id,
+            venue_id=venue.id,
+            external_market_id="market",
+            protocol="POLYMARKET",
+            question=event.question,
+            status="OPEN",
+            closes_at=event.closes_at,
+        )
+        session.add(market)
+        await session.flush()
+        session.add_all(
+            [
+                MarketSnapshot(
+                    market_id=market.id,
+                    ts=datetime.now(UTC),
+                    outcome0_best_bid=Decimal("0.50"),
+                    outcome0_best_ask=Decimal("0.50"),
+                    market_quality_score=Decimal("80"),
+                ),
+                PaperPosition(
+                    account_id=account.id,
+                    market_id=market.id,
+                    outcome_index=0,
+                    quantity=Decimal("600"),
+                    avg_price=Decimal("0.50"),
+                    mark_price=Decimal("0.50"),
+                    unrealized_pnl=Decimal("0"),
+                    realized_pnl=Decimal("0"),
+                    status="open",
+                ),
+            ]
+        )
+        await session.commit()
+
+        response = await create_paper_order(
+            session,
+            PaperOrderInput(
+                account_id=account.id,
+                market_id=market.id,
+                side="BUY",
+                outcome_index=0,
+                limit_price=Decimal("0.50"),
+                quantity=Decimal("390"),
+            ),
+        )
+
+        assert response["order"]["status"] == "filled"
     await sessionmaker.bind.dispose()
 
 

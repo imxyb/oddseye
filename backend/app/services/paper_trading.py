@@ -400,9 +400,17 @@ async def _risk_error(
 
 
 async def _account_equity(session: AsyncSession, account: PaperAccount) -> Decimal:
-    result = await session.execute(select(PaperPosition).where(PaperPosition.account_id == account.id))
-    unrealized = sum((position.unrealized_pnl for position in result.scalars()), Decimal("0"))
-    return account.cash + unrealized
+    result = await session.execute(
+        select(PaperPosition).where(
+            PaperPosition.account_id == account.id,
+            PaperPosition.status == "open",
+        )
+    )
+    position_value = sum(
+        ((position.mark_price or Decimal("0")) * position.quantity for position in result.scalars()),
+        Decimal("0"),
+    )
+    return account.cash + position_value
 
 
 async def _daily_loss(session: AsyncSession, account_id: str) -> Decimal:
