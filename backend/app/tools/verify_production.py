@@ -36,7 +36,7 @@ QUALITY_COMPONENT_NAMES = (
     "activity",
 )
 SYNC_MARKET_JOB_NAMES = {"sync_hot_markets", "sync_warm_markets", "sync_cold_markets"}
-CRYPTO_THRESHOLD_ASSETS = {"BTC", "ETH", "SOL"}
+CRYPTO_THRESHOLD_ASSETS = {"BTC", "BITCOIN", "ETH", "ETHEREUM", "SOL", "SOLANA"}
 
 
 class ProductionClient(Protocol):
@@ -479,19 +479,20 @@ def _require_crypto_threshold_signal(payload: dict[str, Any]) -> dict[str, Any]:
         question = item.get("question")
         category = item.get("category")
         action = item.get("action")
-        _require(isinstance(question, str) and question, "crypto_threshold_signal", "signal missing question")
-        _require(category == "crypto", "crypto_threshold_signal", "signal category is not crypto")
-        _require(action in {"BUY", "OBSERVE", "IGNORE", "HOLD", "EXIT"}, "crypto_threshold_signal", "invalid action")
-        _require(
-            _looks_like_crypto_threshold_question(question),
-            "crypto_threshold_signal",
-            "signal question is not a supported crypto threshold market",
-        )
         signal_id = item.get("signal_id")
-        _require(isinstance(signal_id, str) and signal_id, "crypto_threshold_signal", "signal missing signal_id")
         market_id = item.get("market_id")
-        _require(isinstance(market_id, str) and market_id, "crypto_threshold_signal", "signal missing market_id")
-        return item
+        if (
+            isinstance(question, str)
+            and question
+            and category == "crypto"
+            and action in {"BUY", "OBSERVE", "IGNORE", "HOLD", "EXIT"}
+            and isinstance(signal_id, str)
+            and signal_id
+            and isinstance(market_id, str)
+            and market_id
+            and _looks_like_crypto_threshold_question(question)
+        ):
+            return item
     raise ProductionVerificationError("crypto_threshold_signal: no crypto_threshold_v1 signal returned")
 
 

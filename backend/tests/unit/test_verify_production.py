@@ -409,6 +409,40 @@ def test_verify_production_rejects_missing_crypto_threshold_signal() -> None:
         )
 
 
+def test_verify_production_skips_invalid_crypto_threshold_candidates() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/signals?category=crypto&limit=20")] = {
+        "items": [
+            {
+                "signal_id": "signal-parser-failed",
+                "market_id": "market-2",
+                "strategy_code": "crypto_threshold_v1",
+                "question": "BTC price up in next 15 mins?",
+                "category": "crypto",
+                "action": "IGNORE",
+            },
+            {
+                "signal_id": "signal-valid-threshold",
+                "market_id": "market-1",
+                "strategy_code": "crypto_threshold_v1",
+                "question": "Will the price of Bitcoin be above $62,000 on July 1?",
+                "category": "crypto",
+                "action": "OBSERVE",
+            },
+        ],
+    }
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    checks = verify_production(
+        base_url="https://oddseye.fun",
+        username="admin",
+        password="secret",
+        client=client,
+    )
+
+    assert any(check.name == "crypto_threshold_signal" for check in checks)
+
+
 def test_verify_production_rejects_missing_ingest_job_run() -> None:
     responses = _successful_responses()
     responses[("GET", "/settings/usage")]["recent_jobs"] = [
