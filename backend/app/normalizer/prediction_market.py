@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -39,9 +39,15 @@ class NormalizedMarket:
     raw_json: dict[str, Any]
 
 
-def parse_ts(value: str | None) -> datetime | None:
+def parse_ts(value: Any) -> datetime | None:
     if not value:
         return None
+    if isinstance(value, int | float):
+        seconds = value / 1000 if value > 10_000_000_000 else value
+        try:
+            return datetime.fromtimestamp(seconds, tz=UTC)
+        except (OSError, OverflowError, ValueError):
+            return None
     normalized = value.replace("Z", "+00:00")
     try:
         return datetime.fromisoformat(normalized)
@@ -133,4 +139,3 @@ def normalize_market(row: dict[str, Any]) -> NormalizedMarket:
         snapshot=snapshot,
         raw_json=row,
     )
-
