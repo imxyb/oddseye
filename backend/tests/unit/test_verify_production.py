@@ -46,6 +46,30 @@ def _successful_responses() -> dict[tuple[str, str], dict]:
         ("GET", "/health"): {"status": "ok"},
         ("POST", "/auth/login"): {"access_token": "token-123"},
         ("GET", "/radar/markets?limit=3"): {"items": [{"market_id": "market-1"}]},
+        ("GET", "/radar/markets?category=crypto&sort=quality&limit=5"): {
+            "items": [
+                {"market_id": "quality-1", "market_quality_score": 91, "closes_at": "2026-07-03T00:00:00+00:00"},
+                {"market_id": "quality-2", "market_quality_score": 80, "closes_at": "2026-07-04T00:00:00+00:00"},
+            ],
+        },
+        ("GET", "/radar/markets?category=crypto&sort=volume&limit=5"): {
+            "items": [
+                {"market_id": "volume-1", "volume_usd_24h": 9000, "closes_at": "2026-07-03T00:00:00+00:00"},
+                {"market_id": "volume-2", "volume_usd_24h": 5000, "closes_at": "2026-07-04T00:00:00+00:00"},
+            ],
+        },
+        ("GET", "/radar/markets?category=crypto&sort=liquidity&limit=5"): {
+            "items": [
+                {"market_id": "liquidity-1", "liquidity_usd": 12000, "closes_at": "2026-07-03T00:00:00+00:00"},
+                {"market_id": "liquidity-2", "liquidity_usd": 4000, "closes_at": "2026-07-04T00:00:00+00:00"},
+            ],
+        },
+        ("GET", "/radar/markets?category=crypto&sort=closingSoon&limit=5"): {
+            "items": [
+                {"market_id": "closing-1", "closes_at": "2026-07-03T00:00:00+00:00"},
+                {"market_id": "closing-2", "closes_at": "2026-07-04T00:00:00+00:00"},
+            ],
+        },
         ("GET", "/radar/markets?category=crypto&limit=3"): {
             "items": [{"market_id": "crypto-market"}],
         },
@@ -102,6 +126,10 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "health",
         "login",
         "radar",
+        "radar_sort_quality",
+        "radar_sort_volume",
+        "radar_sort_liquidity",
+        "radar_sort_closingSoon",
         "crypto_markets",
         "macro_markets",
         "market_detail",
@@ -116,6 +144,10 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/health", None, None),
         ("POST", "/auth/login", None, {"username": "admin", "password": "secret"}),
         ("GET", "/radar/markets?limit=3", "token-123", None),
+        ("GET", "/radar/markets?category=crypto&sort=quality&limit=5", "token-123", None),
+        ("GET", "/radar/markets?category=crypto&sort=volume&limit=5", "token-123", None),
+        ("GET", "/radar/markets?category=crypto&sort=liquidity&limit=5", "token-123", None),
+        ("GET", "/radar/markets?category=crypto&sort=closingSoon&limit=5", "token-123", None),
         ("GET", "/radar/markets?category=crypto&limit=3", "token-123", None),
         ("GET", "/radar/markets?category=economics&limit=3", "token-123", None),
         ("GET", "/markets/market-1", "token-123", None),
@@ -133,6 +165,25 @@ def test_verify_production_rejects_empty_live_signal_response() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="signals"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_unsorted_radar_dimension() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/radar/markets?category=crypto&sort=volume&limit=5")] = {
+        "items": [
+            {"market_id": "volume-1", "volume_usd_24h": 1000},
+            {"market_id": "volume-2", "volume_usd_24h": 5000},
+        ],
+    }
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="radar_sort_volume"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",

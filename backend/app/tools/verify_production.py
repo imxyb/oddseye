@@ -5,6 +5,7 @@ import csv
 import os
 import sys
 from dataclasses import dataclass
+from datetime import datetime
 from io import StringIO
 from typing import Any, Protocol
 from urllib.parse import quote
@@ -129,6 +130,22 @@ def verify_production(
     radar = production_client.request("GET", "/radar/markets?limit=3", token=token)
     radar_count = _require_items(radar, "radar")
     checks.append(VerificationCheck("radar", True, f"{radar_count} markets returned"))
+
+    for sort in ("quality", "volume", "liquidity", "closingSoon"):
+        sort_payload = production_client.request(
+            "GET",
+            f"/radar/markets?category=crypto&sort={sort}&limit=5",
+            token=token,
+        )
+        sorted_count = _require_radar_sort(sort_payload, sort)
+        direction = "ascending" if sort == "closingSoon" else "descending"
+        checks.append(
+            VerificationCheck(
+                f"radar_sort_{sort}",
+                True,
+                f"{sorted_count} crypto markets returned in {direction} order",
+            )
+        )
 
     crypto_markets = production_client.request(
         "GET",
@@ -258,6 +275,43 @@ def _require_bars(payload: dict[str, Any]) -> int:
     _require(isinstance(bars, list), "market_bars", "missing bars list")
     _require(len(bars) > 0, "market_bars", "expected chart bars")
     return len(bars)
+
+
+def _require_radar_sort(payload: dict[str, Any], sort: str) -> int:
+    name = f"radar_sort_{sort}"
+    items = payload.get("items")
+    _require(isinstance(items, list), name, "missing items list")
+    _require(len(items) >= 2, name, "expected at least two live items")
+    values = [_radar_sort_value(item, sort, name, index) for index, item in enumerate(items, start=1)]
+    reverse = sort != "closingSoon"
+    _require(
+        values == sorted(values, reverse=reverse),
+        name,
+        f"items are not sorted by {sort}",
+    )
+    return len(items)
+
+
+def _radar_sort_value(item: Any, sort: str, name: str, index: int) -> float:
+    _require(isinstance(item, dict), name, f"row {index} is not an object")
+    if sort == "quality":
+        return _numeric_field(item, "market_quality_score", name, index)
+    if sort == "volume":
+        return _numeric_field(item, "volume_usd_24h", name, index)
+    if sort == "liquidity":
+        return _numeric_field(item, "liquidity_usd", name, index)
+    raw_close = item.get("closes_at")
+    _require(isinstance(raw_close, str) and raw_close, name, f"row {index} missing closes_at")
+    try:
+        return datetime.fromisoformat(raw_close).timestamp()
+    except ValueError as exc:
+        raise ProductionVerificationError(f"{name}: row {index} has invalid closes_at") from exc
+
+
+def _numeric_field(item: dict[str, Any], field: str, name: str, index: int) -> float:
+    value = item.get(field)
+    _require(isinstance(value, int | float) and not isinstance(value, bool), name, f"row {index} missing {field}")
+    return float(value)
 
 
 def _require_trade_traceability(csv_text: str) -> int:

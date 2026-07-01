@@ -119,9 +119,9 @@ printf 'EXPO_PUBLIC_API_BASE_URL=https://oddseye.fun\n' > .env
 
 After migrations and service startup, run the production verifier from the built
 API image. It checks health, login, Radar live data, Crypto and Macro/Economics
-category data, market detail quotes, chart bars, active signals, usage counters,
-paper performance metrics, and paper trade traceability in one repeatable
-command:
+category data, documented Radar sort dimensions, market detail quotes, chart
+bars, active signals, usage counters, paper performance metrics, and paper trade
+traceability in one repeatable command:
 
 ```bash
 docker compose -f docker-compose.prod.yml run --rm \
@@ -152,6 +152,18 @@ TOKEN="$(
 )"
 
 curl -fsS "https://oddseye.fun/radar/markets?limit=3" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -fsS "https://oddseye.fun/radar/markets?category=crypto&sort=quality&limit=5" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -fsS "https://oddseye.fun/radar/markets?category=crypto&sort=volume&limit=5" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -fsS "https://oddseye.fun/radar/markets?category=crypto&sort=liquidity&limit=5" \
+  -H "Authorization: Bearer $TOKEN"
+
+curl -fsS "https://oddseye.fun/radar/markets?category=crypto&sort=closingSoon&limit=5" \
   -H "Authorization: Bearer $TOKEN"
 
 curl -fsS "https://oddseye.fun/signals?limit=3" \
