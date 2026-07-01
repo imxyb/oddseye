@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import os
 import sys
 from dataclasses import dataclass
+from io import StringIO
 from typing import Any, Protocol
 from urllib.parse import quote
 
@@ -30,6 +32,15 @@ class ProductionClient(Protocol):
         token: str | None = None,
         json_body: dict | None = None,
     ) -> dict[str, Any]:
+        ...
+
+    def request_text(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: str | None = None,
+    ) -> str:
         ...
 
 
@@ -67,6 +78,29 @@ class HttpProductionClient:
         if not isinstance(payload, dict):
             raise ProductionVerificationError(f"{method} {path} returned unexpected payload")
         return payload
+
+    def request_text(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: str | None = None,
+    ) -> str:
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        try:
+            response = httpx.request(
+                method,
+                f"{self.base_url}{path}",
+                headers=headers,
+                timeout=self.timeout_seconds,
+                trust_env=False,
+            )
+            response.raise_for_status()
+            return response.text
+        except httpx.HTTPError as exc:
+            raise ProductionVerificationError(f"{method} {path} failed: {exc}") from exc
 
 
 def verify_production(
@@ -141,6 +175,16 @@ def verify_production(
     _require(not missing_keys, "paper_performance", f"missing keys: {', '.join(missing_keys)}")
     checks.append(VerificationCheck("paper_performance", True, "paper account metrics returned"))
 
+    trades_csv = production_client.request_text("GET", "/paper/trades.csv", token=token)
+    trade_count = _require_trade_traceability(trades_csv)
+    checks.append(
+        VerificationCheck(
+            "paper_trade_traceability",
+            True,
+            f"{trade_count} trade rows have snapshot and price traceability",
+        )
+    )
+
     return checks
 
 
@@ -214,6 +258,52 @@ def _require_bars(payload: dict[str, Any]) -> int:
     _require(isinstance(bars, list), "market_bars", "missing bars list")
     _require(len(bars) > 0, "market_bars", "expected chart bars")
     return len(bars)
+
+
+def _require_trade_traceability(csv_text: str) -> int:
+    reader = csv.DictReader(StringIO(csv_text))
+    fieldnames = set(reader.fieldnames or [])
+    required_columns = {"fill_id", "order_id", "signal_id", "snapshot_id", "price"}
+    missing_columns = sorted(required_columns - fieldnames)
+    _require(
+        not missing_columns,
+        "paper_trade_traceability",
+        f"missing columns: {', '.join(missing_columns)}",
+    )
+
+    row_count = 0
+    for row_count, row in enumerate(reader, start=1):
+        snapshot_id = (row.get("snapshot_id") or "").strip()
+        price = (row.get("price") or "").strip()
+        signal_id = (row.get("signal_id") or "").strip()
+        strategy_code = (row.get("strategy_code") or "").strip()
+        _require(
+            bool(snapshot_id),
+            "paper_trade_traceability",
+            f"row {row_count} missing snapshot_id",
+        )
+        _require(
+            _is_number(price),
+            "paper_trade_traceability",
+            f"row {row_count} missing numeric price",
+        )
+        if strategy_code:
+            _require(
+                bool(signal_id),
+                "paper_trade_traceability",
+                f"row {row_count} missing signal_id for strategy trade",
+            )
+    return row_count
+
+
+def _is_number(value: str) -> bool:
+    if not value:
+        return False
+    try:
+        float(value)
+    except ValueError:
+        return False
+    return True
 
 
 if __name__ == "__main__":

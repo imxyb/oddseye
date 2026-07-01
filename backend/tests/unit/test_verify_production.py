@@ -10,8 +10,13 @@ from app.tools.verify_production import (
 
 
 class FakeProductionClient:
-    def __init__(self, responses: dict[tuple[str, str], dict]):
+    def __init__(
+        self,
+        responses: dict[tuple[str, str], dict],
+        text_responses: dict[tuple[str, str], str] | None = None,
+    ):
         self.responses = responses
+        self.text_responses = text_responses or {}
         self.calls: list[tuple[str, str, str | None, dict | None]] = []
 
     def request(
@@ -24,6 +29,16 @@ class FakeProductionClient:
     ) -> dict:
         self.calls.append((method, path, token, json_body))
         return self.responses[(method, path)]
+
+    def request_text(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: str | None = None,
+    ) -> str:
+        self.calls.append((method, path, token, None))
+        return self.text_responses[(method, path)]
 
 
 def _successful_responses() -> dict[tuple[str, str], dict]:
@@ -60,8 +75,21 @@ def _successful_responses() -> dict[tuple[str, str], dict]:
     }
 
 
+def _successful_text_responses() -> dict[tuple[str, str], str]:
+    return {
+        (
+            "GET",
+            "/paper/trades.csv",
+        ): (
+            "fill_id,order_id,signal_id,snapshot_id,market_id,strategy_code,price,created_at\n"
+            "fill-1,order-1,signal-1,snapshot-1,market-1,crypto_threshold_v1,0.50125,2026-07-02T00:00:00Z\n"
+            "fill-2,order-2,,snapshot-2,market-2,,0.45000,2026-07-02T00:01:00Z\n"
+        ),
+    }
+
+
 def test_verify_production_checks_documented_endpoints() -> None:
-    client = FakeProductionClient(_successful_responses())
+    client = FakeProductionClient(_successful_responses(), _successful_text_responses())
 
     checks = verify_production(
         base_url="https://oddseye.fun/",
@@ -81,6 +109,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "signals",
         "usage",
         "paper_performance",
+        "paper_trade_traceability",
     ]
     assert all(check.ok for check in checks)
     assert client.calls == [
@@ -94,15 +123,62 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/signals?limit=3", "token-123", None),
         ("GET", "/settings/usage", "token-123", None),
         ("GET", "/paper/performance", "token-123", None),
+        ("GET", "/paper/trades.csv", "token-123", None),
     ]
 
 
 def test_verify_production_rejects_empty_live_signal_response() -> None:
     responses = _successful_responses()
     responses[("GET", "/signals?limit=3")] = {"items": []}
-    client = FakeProductionClient(responses)
+    client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="signals"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_untraceable_signal_trade() -> None:
+    client = FakeProductionClient(
+        _successful_responses(),
+        {
+            (
+                "GET",
+                "/paper/trades.csv",
+            ): (
+                "fill_id,order_id,signal_id,snapshot_id,market_id,strategy_code,price,created_at\n"
+                "fill-1,order-1,,snapshot-1,market-1,crypto_threshold_v1,0.50125,2026-07-02T00:00:00Z\n"
+            ),
+        },
+    )
+
+    with pytest.raises(ProductionVerificationError, match="paper_trade_traceability"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_trade_without_snapshot_or_price() -> None:
+    client = FakeProductionClient(
+        _successful_responses(),
+        {
+            (
+                "GET",
+                "/paper/trades.csv",
+            ): (
+                "fill_id,order_id,signal_id,snapshot_id,market_id,strategy_code,price,created_at\n"
+                "fill-1,order-1,signal-1,,market-1,crypto_threshold_v1,,2026-07-02T00:00:00Z\n"
+            ),
+        },
+    )
+
+    with pytest.raises(ProductionVerificationError, match="paper_trade_traceability"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",

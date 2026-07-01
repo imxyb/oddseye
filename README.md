@@ -120,7 +120,8 @@ printf 'EXPO_PUBLIC_API_BASE_URL=https://oddseye.fun\n' > .env
 After migrations and service startup, run the production verifier from the built
 API image. It checks health, login, Radar live data, Crypto and Macro/Economics
 category data, market detail quotes, chart bars, active signals, usage counters,
-and paper performance metrics in one repeatable command:
+paper performance metrics, and paper trade traceability in one repeatable
+command:
 
 ```bash
 docker compose -f docker-compose.prod.yml run --rm \
@@ -158,6 +159,9 @@ curl -fsS "https://oddseye.fun/signals?limit=3" \
 
 curl -fsS "https://oddseye.fun/paper/performance" \
   -H "Authorization: Bearer $TOKEN"
+
+curl -fsS "https://oddseye.fun/paper/trades.csv" \
+  -H "Authorization: Bearer $TOKEN"
 ```
 
 Expected production state:
@@ -173,7 +177,7 @@ Expected production state:
 - Market detail exposes a manual refresh action for stale prices; it should write
   a `manual_refresh` row to `api_usage_ledger`.
 - Paper orders use bid/ask based fills and can be traced through
-  `signal_id` and `snapshot_id`.
+  `signal_id`, `snapshot_id`, and `price` in `/paper/trades.csv`.
 
 ## Mobile
 
