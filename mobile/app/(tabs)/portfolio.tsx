@@ -16,7 +16,7 @@ import {
 } from "../../src/api/paper";
 import { PositionCard } from "../../src/components/PositionCard";
 import { colors, spacing } from "../../src/theme";
-import { formatCurrency, formatPercent } from "../../src/utils/format";
+import { buildPerformanceMetrics } from "../../src/utils/paperPerformance";
 
 export default function PortfolioScreen() {
   const performanceQuery = useQuery({
@@ -49,30 +49,12 @@ export default function PortfolioScreen() {
               <ActivityIndicator color={colors.primary} />
             ) : performanceQuery.data ? (
               <View style={styles.metrics}>
-                <View style={styles.metric}>
-                  <Text style={styles.metricLabel}>Equity</Text>
-                  <Text style={styles.metricValue}>
-                    {formatCurrency(performanceQuery.data.equity)}
-                  </Text>
-                </View>
-                <View style={styles.metric}>
-                  <Text style={styles.metricLabel}>Cash</Text>
-                  <Text style={styles.metricValue}>
-                    {formatCurrency(performanceQuery.data.cash)}
-                  </Text>
-                </View>
-                <View style={styles.metric}>
-                  <Text style={styles.metricLabel}>Unrealized</Text>
-                  <Text style={styles.metricValue}>
-                    {formatCurrency(performanceQuery.data.unrealized_pnl)}
-                  </Text>
-                </View>
-                <View style={styles.metric}>
-                  <Text style={styles.metricLabel}>Win rate</Text>
-                  <Text style={styles.metricValue}>
-                    {formatPercent(performanceQuery.data.win_rate)}
-                  </Text>
-                </View>
+                {buildPerformanceMetrics(performanceQuery.data).map((metric) => (
+                  <View key={metric.label} style={styles.metric}>
+                    <Text style={styles.metricLabel}>{metric.label}</Text>
+                    <Text style={styles.metricValue}>{metric.value}</Text>
+                  </View>
+                ))}
               </View>
             ) : (
               <Text style={styles.stateText}>Performance is unavailable.</Text>

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from sqlalchemy import select
+from sqlalchemy import or_, select
 
 from app.core.config import get_settings
-from app.db.models import PredictionEvent
+from app.core.time import utcnow
+from app.db.models import MarketSnapshot, ModelSignal, PaperPosition, PredictionEvent, PredictionMarket
 from app.db.session import get_session_factory
 from app.services.ingestion import (
     compute_quality_for_latest_snapshots,
@@ -52,16 +53,48 @@ async def compute_quality_job() -> None:
 async def _sync_markets(limit: int) -> None:
     async with get_session_factory()() as session:
         async with job_run(session, "sync_markets") as run:
-            result = await session.execute(
-                select(PredictionEvent.external_event_id)
-                .where(PredictionEvent.status == "OPEN")
-                .order_by(PredictionEvent.updated_at.desc())
-                .limit(limit)
-            )
-            run.records_processed = await sync_event_markets(
-                session, list(result.scalars()), job_run_id=run.id
-            )
+            event_ids = await event_ids_for_sync(session, limit)
+            run.records_processed = await sync_event_markets(session, event_ids, job_run_id=run.id)
         await session.commit()
+
+
+async def event_ids_for_sync(session, limit: int) -> list[str]:
+    event_ids: list[str] = []
+
+    async def append(query) -> None:
+        result = await session.execute(query)
+        for external_event_id in result.scalars():
+            if external_event_id not in event_ids:
+                event_ids.append(external_event_id)
+            if len(event_ids) >= limit:
+                return
+
+    await append(
+        select(PredictionEvent.external_event_id)
+        .join(PredictionMarket, PredictionMarket.event_id == PredictionEvent.id)
+        .join(PaperPosition, PaperPosition.market_id == PredictionMarket.id)
+        .where(PredictionEvent.status == "OPEN", PaperPosition.status == "open")
+        .order_by(PaperPosition.updated_at.desc())
+    )
+    await append(
+        select(PredictionEvent.external_event_id)
+        .join(PredictionMarket, PredictionMarket.event_id == PredictionEvent.id)
+        .join(ModelSignal, ModelSignal.market_id == PredictionMarket.id)
+        .where(
+            PredictionEvent.status == "OPEN",
+            ModelSignal.action == "BUY",
+            or_(ModelSignal.expires_at.is_(None), ModelSignal.expires_at > utcnow()),
+        )
+        .order_by(ModelSignal.edge.desc(), ModelSignal.ts.desc())
+    )
+    await append(
+        select(PredictionEvent.external_event_id)
+        .join(PredictionMarket, PredictionMarket.event_id == PredictionEvent.id)
+        .outerjoin(MarketSnapshot, MarketSnapshot.market_id == PredictionMarket.id)
+        .where(PredictionEvent.status == "OPEN")
+        .order_by(MarketSnapshot.market_quality_score.desc(), PredictionEvent.updated_at.desc())
+    )
+    return event_ids[:limit]
 
 
 def main() -> None:

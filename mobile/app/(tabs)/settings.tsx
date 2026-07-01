@@ -4,11 +4,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { useAuthStore } from "../../src/stores/authStore";
 import { colors, spacing } from "../../src/theme";
+import { buildSettingsInfoRows } from "../../src/utils/settingsInfo";
 
 export default function SettingsScreen() {
   const user = useAuthStore((state) => state.user);
   const logout = useAuthStore((state) => state.logout);
   const apiBaseUrl = process.env.EXPO_PUBLIC_API_BASE_URL ?? "Not configured";
+  const apiRows = buildSettingsInfoRows(apiBaseUrl);
 
   async function handleLogout() {
     await logout();
@@ -32,12 +34,14 @@ export default function SettingsScreen() {
 
         <View style={styles.section}>
           <Text style={styles.heading}>API</Text>
-          <View style={styles.row}>
-            <Text style={styles.label}>Base URL</Text>
-            <Text style={styles.value} numberOfLines={2}>
-              {apiBaseUrl}
-            </Text>
-          </View>
+          {apiRows.map((row) => (
+            <View key={row.label} style={styles.row}>
+              <Text style={styles.label}>{row.label}</Text>
+              <Text style={styles.value} numberOfLines={3}>
+                {row.value}
+              </Text>
+            </View>
+          ))}
         </View>
 
         <Pressable

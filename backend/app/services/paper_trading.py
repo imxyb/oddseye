@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from io import StringIO
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -374,6 +374,12 @@ async def _risk_error(
             return "insufficient_inventory"
     if order_input.side.upper() == "BUY" and notional > equity * Decimal(str(settings.max_position_pct)):
         return "single_order_notional_exceeds_3pct_equity"
+    if order_input.side.upper() == "BUY":
+        market_exposure = await _market_exposure(session, account.id, market.id)
+        if market_exposure + notional > equity * Decimal(str(settings.max_market_risk_pct)):
+            return "market_exposure_exceeds_5pct_equity"
+        if market.closes_at is not None and _aware(market.closes_at) <= utcnow() + timedelta(minutes=30):
+            return "market_closing_soon"
     if order_input.enforce_auto_gates and latest is not None:
         if latest.market_quality_score is not None and latest.market_quality_score < Decimal("65"):
             return "market_quality_below_gate"
@@ -425,6 +431,17 @@ async def _category_exposure(session: AsyncSession, account_id: str, categories:
         if wanted.intersection({str(category).lower() for category in event.categories or []}):
             exposure += position.quantity * position.avg_price
     return exposure
+
+
+async def _market_exposure(session: AsyncSession, account_id: str, market_id: str) -> Decimal:
+    result = await session.execute(
+        select(PaperPosition).where(
+            PaperPosition.account_id == account_id,
+            PaperPosition.market_id == market_id,
+            PaperPosition.status == "open",
+        )
+    )
+    return sum((position.quantity * position.avg_price for position in result.scalars()), Decimal("0"))
 
 
 async def _load_position(

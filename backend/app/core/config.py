@@ -56,6 +56,7 @@ class PaperSection(BaseModel):
     fee_bps: int = 0
     slippage_bps: int = 25
     max_position_pct: float = 0.03
+    max_market_risk_pct: float = 0.05
     max_daily_loss_pct: float = 0.03
     max_category_exposure_pct: float = 0.15
     allow_short: bool = False
@@ -138,6 +139,8 @@ def _load_yaml_config(path: str) -> dict[str, Any]:
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     env = EnvSettings()
+    if env.app_env == "prod" and len(env.jwt_secret) < 32:
+        raise ValueError("JWT_SECRET must be at least 32 characters in prod")
     defaults = RuntimeConfig().model_dump()
     yaml_config = _load_yaml_config(env.app_config_path)
     runtime = RuntimeConfig.model_validate(_deep_merge(defaults, yaml_config))
@@ -152,4 +155,3 @@ def get_settings() -> Settings:
         log_level=env.log_level,
         config=runtime,
     )
-

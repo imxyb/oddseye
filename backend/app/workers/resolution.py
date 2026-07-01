@@ -5,15 +5,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import get_settings
 from app.db.session import get_session_factory
 from app.services.ingestion import job_run
+from app.services.resolution import settle_due_markets
 from app.workers.common import add_interval_job, run_scheduler
 
 
 async def poll_resolutions_job() -> None:
-    # V1 keeps this hook ready for Codex/venue settlement polling. Markets with
-    # unknown settlement remain pending until a provider result is available.
     async with get_session_factory()() as session:
         async with job_run(session, "poll_resolutions") as run:
-            run.records_processed = 0
+            run.records_processed = await settle_due_markets(session)
         await session.commit()
 
 

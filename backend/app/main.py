@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 import app.db.models  # noqa: F401
 from app.api.routes import auth, health, markets, paper, radar, settings, signals
 from app.core.config import get_settings
+from app.core.ip_allowlist import client_ip_allowed
 from app.core.logging import configure_logging
 
 
@@ -20,6 +22,13 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    @app.middleware("http")
+    async def enforce_ip_allowlist(request, call_next):
+        if not client_ip_allowed(request, settings_obj.config.auth.ip_allowlist):
+            return JSONResponse(status_code=403, content={"detail": "IP not allowed"})
+        return await call_next(request)
+
     app.include_router(health.router)
     app.include_router(auth.router)
     app.include_router(radar.router)
@@ -31,4 +40,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

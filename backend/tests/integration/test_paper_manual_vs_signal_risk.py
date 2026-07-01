@@ -9,6 +9,7 @@ from app.db.models import (
     MarketSnapshot,
     ModelSignal,
     PaperAccount,
+    PaperPosition,
     PredictionEvent,
     PredictionMarket,
     Venue,
@@ -172,4 +173,137 @@ async def test_manual_sell_without_inventory_is_rejected_without_cash_change(tmp
         assert response["order"]["status"] == "rejected"
         assert response["order"]["reason"] == "insufficient_inventory"
         assert account.cash == Decimal("10000.00000000")
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_new_buy_is_rejected_when_single_market_risk_would_exceed_limit(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'market-risk.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("9700"))
+        session.add_all([venue, account])
+        await session.flush()
+        event = PredictionEvent(
+            venue_id=venue.id,
+            external_event_id="event",
+            protocol="POLYMARKET",
+            question="Will BTC be above $80,000?",
+            categories=["crypto"],
+            status="OPEN",
+            closes_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        session.add(event)
+        await session.flush()
+        market = PredictionMarket(
+            event_id=event.id,
+            venue_id=venue.id,
+            external_market_id="market",
+            protocol="POLYMARKET",
+            question=event.question,
+            status="OPEN",
+            closes_at=event.closes_at,
+        )
+        session.add(market)
+        await session.flush()
+        session.add_all(
+            [
+                MarketSnapshot(
+                    market_id=market.id,
+                    ts=datetime.now(UTC),
+                    outcome0_best_bid=Decimal("0.50"),
+                    outcome0_best_ask=Decimal("0.50"),
+                    market_quality_score=Decimal("80"),
+                ),
+                PaperPosition(
+                    account_id=account.id,
+                    market_id=market.id,
+                    outcome_index=0,
+                    quantity=Decimal("600"),
+                    avg_price=Decimal("0.50"),
+                    mark_price=Decimal("0.50"),
+                    unrealized_pnl=Decimal("0"),
+                    realized_pnl=Decimal("0"),
+                    status="open",
+                ),
+            ]
+        )
+        await session.commit()
+
+        response = await create_paper_order(
+            session,
+            PaperOrderInput(
+                account_id=account.id,
+                market_id=market.id,
+                side="BUY",
+                outcome_index=0,
+                limit_price=Decimal("0.50"),
+                quantity=Decimal("500"),
+            ),
+        )
+
+        assert response["order"]["status"] == "rejected"
+        assert response["order"]["reason"] == "market_exposure_exceeds_5pct_equity"
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_new_buy_is_rejected_when_market_closes_within_thirty_minutes(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'closing-soon.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("10000"))
+        session.add_all([venue, account])
+        await session.flush()
+        event = PredictionEvent(
+            venue_id=venue.id,
+            external_event_id="event",
+            protocol="POLYMARKET",
+            question="Will BTC be above $80,000?",
+            categories=["crypto"],
+            status="OPEN",
+            closes_at=datetime.now(UTC) + timedelta(minutes=20),
+        )
+        session.add(event)
+        await session.flush()
+        market = PredictionMarket(
+            event_id=event.id,
+            venue_id=venue.id,
+            external_market_id="market",
+            protocol="POLYMARKET",
+            question=event.question,
+            status="OPEN",
+            closes_at=event.closes_at,
+        )
+        session.add(market)
+        await session.flush()
+        session.add(
+            MarketSnapshot(
+                market_id=market.id,
+                ts=datetime.now(UTC),
+                outcome0_best_bid=Decimal("0.50"),
+                outcome0_best_ask=Decimal("0.52"),
+                market_quality_score=Decimal("80"),
+            )
+        )
+        await session.commit()
+
+        response = await create_paper_order(
+            session,
+            PaperOrderInput(
+                account_id=account.id,
+                market_id=market.id,
+                side="BUY",
+                outcome_index=0,
+                limit_price=Decimal("0.52"),
+                quantity=Decimal("10"),
+            ),
+        )
+
+        assert response["order"]["status"] == "rejected"
+        assert response["order"]["reason"] == "market_closing_soon"
     await sessionmaker.bind.dispose()

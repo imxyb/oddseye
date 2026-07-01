@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import type { RadarMarket } from "../api/types";
 import { colors, spacing } from "../theme";
 import { formatCents, formatCurrency, formatDate } from "../utils/format";
-import { midpoint, yesProbability } from "../utils/probability";
+import { buildMarketQuoteMetrics } from "../utils/marketQuote";
+import { yesProbability } from "../utils/probability";
 import { RiskFlags } from "./RiskFlags";
 import { SignalBadge } from "./SignalBadge";
 
@@ -13,8 +14,6 @@ interface MarketCardProps {
 }
 
 export function MarketCard({ market, onPress }: MarketCardProps) {
-  const yes = market.outcomes.find((outcome) => outcome.index === 0);
-  const no = market.outcomes.find((outcome) => outcome.index === 1);
   const probability = yesProbability(market);
 
   return (
@@ -41,14 +40,12 @@ export function MarketCard({ market, onPress }: MarketCardProps) {
       </Text>
 
       <View style={styles.priceRow}>
-        <View style={styles.priceBox}>
-          <Text style={styles.priceLabel}>YES</Text>
-          <Text style={styles.priceValue}>{formatCents(midpoint(yes))}</Text>
-        </View>
-        <View style={styles.priceBox}>
-          <Text style={styles.priceLabel}>NO</Text>
-          <Text style={styles.priceValue}>{formatCents(midpoint(no))}</Text>
-        </View>
+        {buildMarketQuoteMetrics(market.outcomes).map((metric) => (
+          <View key={metric.label} style={styles.priceBox}>
+            <Text style={styles.priceLabel}>{metric.label}</Text>
+            <Text style={styles.priceValue}>{metric.value}</Text>
+          </View>
+        ))}
         <View style={styles.priceBox}>
           <Text style={styles.priceLabel}>IMPLIED</Text>
           <Text style={styles.priceValue}>{formatCents(probability)}</Text>
@@ -126,13 +123,16 @@ const styles = StyleSheet.create({
   },
   priceRow: {
     flexDirection: "row",
+    flexWrap: "wrap",
     gap: spacing.sm,
   },
   priceBox: {
     backgroundColor: colors.surfaceMuted,
     borderRadius: 8,
-    flex: 1,
+    flexBasis: "30%",
+    flexGrow: 1,
     gap: 3,
+    minWidth: 88,
     padding: spacing.md,
   },
   priceLabel: {

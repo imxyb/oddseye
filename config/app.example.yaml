@@ -43,6 +43,7 @@ paper:
   fee_bps: 0
   slippage_bps: 25
   max_position_pct: 0.03
+  max_market_risk_pct: 0.05
   max_daily_loss_pct: 0.03
   max_category_exposure_pct: 0.15
   allow_short: false
@@ -63,4 +64,3 @@ ingestion_tiers:
   cold_pool_max_markets: 500
   bars_fetch_mode: on_demand
   manual_refresh_enabled: true
-

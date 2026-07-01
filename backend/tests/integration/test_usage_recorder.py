@@ -46,6 +46,7 @@ async def test_job_run_is_visible_to_usage_recorder_before_work_starts(tmp_path,
         assert ledger.job_run_id == run_id
         assert persisted_run is not None
         assert persisted_run.status == "success"
+        assert persisted_run.codex_requests_used == 1
     finally:
         await sessionmaker.bind.dispose()
         get_session_factory.cache_clear()

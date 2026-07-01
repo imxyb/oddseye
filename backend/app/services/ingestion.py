@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from decimal import Decimal
 from typing import Any, AsyncIterator
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.codex.client import CodexClient
@@ -17,6 +17,7 @@ from app.db.models import (
     PredictionCategory,
     PredictionEvent,
     PredictionMarket,
+    ApiUsageLedger,
     Venue,
 )
 from app.normalizer.prediction_market import normalize_event, normalize_market
@@ -61,6 +62,7 @@ async def job_run(session: AsyncSession, job_name: str) -> AsyncIterator[JobRun]
             raise RuntimeError(f"job run disappeared before completion: {run_id}")
         persisted_run.status = "success"
         persisted_run.finished_at = utcnow()
+        persisted_run.codex_requests_used = await _codex_requests_for_run(session, run_id)
         await session.commit()
 
 
@@ -86,6 +88,15 @@ async def refresh_categories(
             existing.updated_at = utcnow()
         count += 1
     return count
+
+
+async def _codex_requests_for_run(session: AsyncSession, run_id: str) -> int:
+    result = await session.execute(
+        select(func.coalesce(func.sum(ApiUsageLedger.request_count), 0)).where(
+            ApiUsageLedger.job_run_id == run_id
+        )
+    )
+    return int(result.scalar_one() or 0)
 
 
 async def discover_events(
