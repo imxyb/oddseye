@@ -39,6 +39,19 @@ export interface QualityExplanation {
   passes_paper_gate: boolean;
 }
 
+export interface CodexUsageHint {
+  today_requests: number;
+  month_requests: number;
+  fetch_profile: string;
+}
+
+export interface Freshness {
+  last_snapshot_at?: string | null;
+  age_seconds?: number | null;
+  is_stale: boolean;
+  codex_usage_hint?: CodexUsageHint | null;
+}
+
 export interface RadarMarket {
   market_id: string;
   event_id?: string;
@@ -54,6 +67,7 @@ export interface RadarMarket {
   open_interest_usd?: number | null;
   market_quality_score?: number | null;
   quality?: QualityExplanation | null;
+  freshness?: Freshness | null;
   latest_signal?: SignalSummary | null;
   risk_flags?: string[];
 }
@@ -61,6 +75,7 @@ export interface RadarMarket {
 export interface RadarMarketsResponse {
   items: RadarMarket[];
   total: number;
+  freshness?: Freshness | null;
 }
 
 export interface MarketBar {

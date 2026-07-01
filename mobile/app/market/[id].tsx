@@ -18,6 +18,7 @@ import { ProbabilityChart } from "../../src/components/ProbabilityChart";
 import { RiskFlags } from "../../src/components/RiskFlags";
 import { SignalBadge } from "../../src/components/SignalBadge";
 import { colors, spacing } from "../../src/theme";
+import { buildFreshnessNotice } from "../../src/utils/freshness";
 import {
   formatCents,
   formatCurrency,
@@ -55,6 +56,7 @@ export default function MarketDetailScreen() {
   const market = marketQuery.data;
   const yes = market?.outcomes.find((outcome) => outcome.index === 0);
   const no = market?.outcomes.find((outcome) => outcome.index === 1);
+  const freshnessNotice = buildFreshnessNotice(market?.freshness);
 
   if (marketQuery.isLoading) {
     return (
@@ -93,6 +95,13 @@ export default function MarketDetailScreen() {
             side={market.latest_signal?.side}
           />
         </View>
+
+        {freshnessNotice ? (
+          <View style={styles.warning}>
+            <Text style={styles.warningTitle}>{freshnessNotice.title}</Text>
+            <Text style={styles.warningText}>{freshnessNotice.detail}</Text>
+          </View>
+        ) : null}
 
         <View style={styles.priceGrid}>
           <View style={styles.metric}>
@@ -239,6 +248,25 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 13,
     fontWeight: "600",
+  },
+  warning: {
+    backgroundColor: colors.warningSoft,
+    borderColor: colors.warning,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: 4,
+    padding: spacing.md,
+  },
+  warningTitle: {
+    color: colors.warning,
+    fontSize: 13,
+    fontWeight: "900",
+  },
+  warningText: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "600",
+    lineHeight: 18,
   },
   priceGrid: {
     flexDirection: "row",
