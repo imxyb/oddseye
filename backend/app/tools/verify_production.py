@@ -35,6 +35,7 @@ QUALITY_COMPONENT_NAMES = (
     "time",
     "activity",
 )
+SYNC_MARKET_JOB_NAMES = {"sync_hot_markets", "sync_warm_markets", "sync_cold_markets"}
 
 
 class ProductionClient(Protocol):
@@ -262,9 +263,17 @@ def verify_production(
     )
 
     usage = production_client.request("GET", "/settings/usage", token=token)
-    _require("today_requests" in usage, "usage", "missing today_requests")
-    _require(isinstance(usage.get("jobs"), dict), "usage", "missing jobs")
+    _require_usage_summary(usage)
     checks.append(VerificationCheck("usage", True, "usage counters and job cadence returned"))
+
+    scheduled_count = _require_scheduled_jobs(usage)
+    checks.append(
+        VerificationCheck(
+            "scheduled_jobs",
+            True,
+            f"{scheduled_count} successful market ingestion job types returned",
+        )
+    )
 
     performance = production_client.request("GET", "/paper/performance", token=token)
     required_performance_keys = {"cash", "equity", "win_rate", "max_drawdown", "total_trades"}
@@ -490,6 +499,65 @@ def _numeric_field(item: dict[str, Any], field: str, name: str, index: int) -> f
     value = item.get(field)
     _require(isinstance(value, int | float) and not isinstance(value, bool), name, f"row {index} missing {field}")
     return float(value)
+
+
+def _require_usage_summary(payload: dict[str, Any]) -> None:
+    for field in ("today_requests", "month_requests"):
+        _require(
+            isinstance(payload.get(field), int) and not isinstance(payload.get(field), bool),
+            "usage",
+            f"missing {field}",
+        )
+    _require(isinstance(payload.get("jobs"), dict), "usage", "missing jobs")
+
+
+def _require_scheduled_jobs(payload: dict[str, Any]) -> int:
+    jobs = payload.get("recent_jobs")
+    _require(isinstance(jobs, list), "scheduled_jobs", "missing recent_jobs list")
+    successful_jobs = {
+        job.get("job_name"): job
+        for job in jobs
+        if isinstance(job, dict) and job.get("status") == "success" and isinstance(job.get("job_name"), str)
+    }
+    _require_successful_job(successful_jobs, "discover_events", require_records=False)
+    _require_successful_job(successful_jobs, "compute_quality", require_records=False)
+
+    sync_jobs = [job_name for job_name in SYNC_MARKET_JOB_NAMES if job_name in successful_jobs]
+    _require(sync_jobs, "scheduled_jobs", "missing successful market sync job")
+    for job_name in sync_jobs:
+        _require_successful_job(successful_jobs, job_name, require_records=True)
+    return 2 + len(sync_jobs)
+
+
+def _require_successful_job(
+    jobs_by_name: dict[str, Any],
+    job_name: str,
+    *,
+    require_records: bool,
+) -> None:
+    job = jobs_by_name.get(job_name)
+    _require(isinstance(job, dict), "scheduled_jobs", f"missing successful {job_name} job")
+    started_at = job.get("started_at")
+    finished_at = job.get("finished_at")
+    _require(isinstance(started_at, str) and started_at, "scheduled_jobs", f"{job_name} missing started_at")
+    _require(isinstance(finished_at, str) and finished_at, "scheduled_jobs", f"{job_name} missing finished_at")
+    _parse_iso_datetime(started_at, "scheduled_jobs", f"{job_name} started_at")
+    _parse_iso_datetime(finished_at, "scheduled_jobs", f"{job_name} finished_at")
+    records_processed = job.get("records_processed")
+    _require(
+        isinstance(records_processed, int) and not isinstance(records_processed, bool) and records_processed >= 0,
+        "scheduled_jobs",
+        f"{job_name} missing records_processed",
+    )
+    if require_records:
+        _require(records_processed > 0, "scheduled_jobs", f"{job_name} processed no records")
+
+
+def _parse_iso_datetime(value: str, name: str, label: str) -> datetime:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError as exc:
+        raise ProductionVerificationError(f"{name}: invalid {label}") from exc
 
 
 def _decimal_payload_value(value: Any, name: str, label: str) -> Decimal:

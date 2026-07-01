@@ -120,8 +120,9 @@ printf 'EXPO_PUBLIC_API_BASE_URL=https://oddseye.fun\n' > .env
 After migrations and service startup, run the production verifier from the built
 API image. It checks health, login, Radar live data, Crypto and Macro/Economics
 category data, documented Radar sort dimensions, market detail quotes, quality
-score explanations, chart bars, active signals, usage counters, paper
-performance metrics, and paper trade traceability in one repeatable command:
+score explanations, chart bars, active signals, usage counters, recent ingestion
+job runs, paper performance metrics, and paper trade traceability in one
+repeatable command:
 
 The verifier creates tiny paper BUY orders through both the manual order API and
 the signal order API so V1 paper-trading flows are checked against production
@@ -201,6 +202,10 @@ curl -fsS "https://oddseye.fun/paper/performance" \
 
 curl -fsS "https://oddseye.fun/paper/trades.csv" \
   -H "Authorization: Bearer $TOKEN"
+
+curl -fsS "https://oddseye.fun/settings/usage" \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); jobs={j["job_name"]: j for j in d["recent_jobs"] if j["status"]=="success"}; assert "discover_events" in jobs; assert "compute_quality" in jobs; assert any(name in jobs and jobs[name]["records_processed"] > 0 for name in ("sync_hot_markets","sync_warm_markets","sync_cold_markets")); print("scheduled ingestion jobs ok")'
 ```
 
 Expected production state:
@@ -208,6 +213,8 @@ Expected production state:
 - containers `api`, `worker-ingest`, `worker-signal`, `worker-paper`,
   `worker-resolution`, and `worker-usage` are running.
 - `api_usage_ledger` records Codex calls with status, duration, and kind.
+- `/settings/usage` reports daily/monthly request counters plus recent successful
+  `discover_events`, `sync_*_markets`, and `compute_quality` job runs.
 - `prediction_events`, `prediction_markets`, and `market_snapshots` contain
   real Codex data, not `seed-*` demo rows.
 - Market detail includes `market_quality_score` plus quality components,

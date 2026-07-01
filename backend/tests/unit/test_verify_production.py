@@ -134,7 +134,37 @@ def _successful_responses() -> dict[tuple[str, str], dict]:
             "fill": {"fill_id": "signal-fill", "price": 0.50125, "snapshot_id": 11},
             "position": {"position_id": "signal-position"},
         },
-        ("GET", "/settings/usage"): {"today_requests": 3, "jobs": {"signal_seconds": 300}},
+        ("GET", "/settings/usage"): {
+            "today_requests": 3,
+            "month_requests": 9,
+            "jobs": {"signal_seconds": 300},
+            "recent_jobs": [
+                {
+                    "job_name": "discover_events",
+                    "started_at": "2026-07-02T00:00:00+00:00",
+                    "finished_at": "2026-07-02T00:00:01+00:00",
+                    "status": "success",
+                    "records_processed": 3,
+                    "codex_requests_used": 1,
+                },
+                {
+                    "job_name": "sync_hot_markets",
+                    "started_at": "2026-07-02T00:01:00+00:00",
+                    "finished_at": "2026-07-02T00:01:01+00:00",
+                    "status": "success",
+                    "records_processed": 6,
+                    "codex_requests_used": 2,
+                },
+                {
+                    "job_name": "compute_quality",
+                    "started_at": "2026-07-02T00:02:00+00:00",
+                    "finished_at": "2026-07-02T00:02:01+00:00",
+                    "status": "success",
+                    "records_processed": 6,
+                    "codex_requests_used": 0,
+                },
+            ],
+        },
         ("GET", "/paper/performance"): {
             "cash": 1000,
             "equity": 1000,
@@ -185,6 +215,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "signals",
         "paper_signal_order",
         "usage",
+        "scheduled_jobs",
         "paper_performance",
         "paper_trade_traceability",
     ]
@@ -326,6 +357,37 @@ def test_verify_production_rejects_unfilled_signal_paper_order() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="paper_signal_order"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_missing_ingest_job_run() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/settings/usage")]["recent_jobs"] = [
+        {
+            "job_name": "discover_events",
+            "started_at": "2026-07-02T00:00:00+00:00",
+            "finished_at": "2026-07-02T00:00:01+00:00",
+            "status": "success",
+            "records_processed": 3,
+            "codex_requests_used": 1,
+        },
+        {
+            "job_name": "compute_quality",
+            "started_at": "2026-07-02T00:02:00+00:00",
+            "finished_at": "2026-07-02T00:02:01+00:00",
+            "status": "success",
+            "records_processed": 6,
+            "codex_requests_used": 0,
+        },
+    ]
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="scheduled_jobs"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",
