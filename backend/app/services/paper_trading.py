@@ -143,6 +143,7 @@ async def performance(session: AsyncSession) -> dict[str, Any]:
     equity = account.cash + position_value
     closed_positions = [position for position in positions if position.status == "closed"]
     wins = [position for position in closed_positions if position.realized_pnl > 0]
+    max_drawdown = _drawdown_from_starting_cash(account.starting_cash, equity)
     return {
         "equity": float(equity),
         "cash": float(account.cash),
@@ -150,7 +151,7 @@ async def performance(session: AsyncSession) -> dict[str, Any]:
         "unrealized_pnl": float(unrealized),
         "realized_pnl": float(realized),
         "win_rate": len(wins) / len(closed_positions) if closed_positions else 0,
-        "max_drawdown": 0,
+        "max_drawdown": float(max_drawdown),
         "total_trades": len(fills),
     }
 
@@ -260,6 +261,12 @@ def _accumulate(stats: dict[str, dict[str, Any]], key: str, trade: dict[str, Any
         item["_edge_sum"] += trade["edge"]
         item["_edge_count"] += 1
         item["average_edge"] = item["_edge_sum"] / item["_edge_count"]
+
+
+def _drawdown_from_starting_cash(starting_cash: Decimal, equity: Decimal) -> Decimal:
+    if starting_cash <= 0 or equity >= starting_cash:
+        return Decimal("0")
+    return (starting_cash - equity) / starting_cash
 
 
 async def mark_positions(session: AsyncSession) -> int:

@@ -68,3 +68,19 @@ async def test_performance_equity_includes_open_position_mark_value(tmp_path) ->
         assert result["position_value"] == 62.0
         assert result["equity"] == 10004.8575
     await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_performance_reports_drawdown_when_equity_is_below_starting_cash(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'drawdown.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        session.add(PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("9250")))
+        await session.commit()
+
+        result = await performance(session)
+
+        assert result["equity"] == 9250
+        assert result["max_drawdown"] == 0.075
+    await sessionmaker.bind.dispose()
