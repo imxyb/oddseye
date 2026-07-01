@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -118,27 +118,33 @@ async def compute_crypto_signals(
             continue
         parsed = parse_crypto_threshold(market.question)
         if parsed is None:
-            continue
-        raw = market.raw_json or {}
-        asset_data = await _asset_market_data(provider, asset_cache, parsed.asset)
-        strategy_inputs = _strategy_inputs(raw, asset_data)
-        if strategy_inputs is None:
-            continue
-        signal = strategy.evaluate(
-            CryptoMarketContext(
-                market_id=market.id,
-                question=market.question,
-                now=utcnow(),
-                deadline=market.closes_at,
-                current_price=strategy_inputs["current_price"],
-                annualized_volatility=strategy_inputs["annualized_volatility"],
-                yes_ask=snapshot.outcome0_best_ask,
-                no_ask=snapshot.outcome1_best_ask,
-                market_quality_score=snapshot.market_quality_score,
-                parser_confidence=Decimal("0.86"),
-                snapshot_id=snapshot.id,
+            signal = _ignore_signal(strategy.strategy_code, market, snapshot)
+            raw_signal_json = {"snapshot_id": signal.snapshot_id}
+        else:
+            raw = market.raw_json or {}
+            asset_data = await _asset_market_data(provider, asset_cache, parsed.asset)
+            strategy_inputs = _strategy_inputs(raw, asset_data)
+            if strategy_inputs is None:
+                continue
+            signal = strategy.evaluate(
+                CryptoMarketContext(
+                    market_id=market.id,
+                    question=market.question,
+                    now=utcnow(),
+                    deadline=market.closes_at,
+                    current_price=strategy_inputs["current_price"],
+                    annualized_volatility=strategy_inputs["annualized_volatility"],
+                    yes_ask=snapshot.outcome0_best_ask,
+                    no_ask=snapshot.outcome1_best_ask,
+                    market_quality_score=snapshot.market_quality_score,
+                    parser_confidence=Decimal("0.86"),
+                    snapshot_id=snapshot.id,
+                )
             )
-        )
+            raw_signal_json = {
+                "snapshot_id": signal.snapshot_id,
+                "asset_market_data": strategy_inputs["metadata"],
+            }
         signal = await _position_adjusted_signal(session, signal, snapshot)
         session.add(
             ModelSignal(
@@ -156,16 +162,33 @@ async def compute_crypto_signals(
                 reason_codes=signal.reason_codes,
                 risk_flags=signal.risk_flags,
                 expires_at=signal.expires_at,
-                raw_json={
-                    "snapshot_id": signal.snapshot_id,
-                    "asset_market_data": strategy_inputs["metadata"],
-                },
+                raw_json=raw_signal_json,
             )
         )
         count += 1
     if owns_provider and hasattr(provider, "aclose"):
         await provider.aclose()
     return count
+
+
+def _ignore_signal(strategy_code: str, market: PredictionMarket, snapshot: MarketSnapshot) -> StrategySignal:
+    now = utcnow()
+    return StrategySignal(
+        market_id=market.id,
+        strategy_code=strategy_code,
+        action="IGNORE",
+        side=None,
+        model_probability=None,
+        executable_price=None,
+        edge=None,
+        confidence=Decimal("0"),
+        suggested_notional=None,
+        market_quality_score=snapshot.market_quality_score,
+        reason_codes=[],
+        risk_flags=["PARSER_FAILED"],
+        expires_at=now + timedelta(minutes=5),
+        snapshot_id=snapshot.id,
+    )
 
 
 async def _asset_market_data(

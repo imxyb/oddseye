@@ -148,8 +148,9 @@ Expected production state:
 - `api_usage_ledger` records Codex calls with status, duration, and kind.
 - `prediction_events`, `prediction_markets`, and `market_snapshots` contain
   real Codex data, not `seed-*` demo rows.
-- `/signals` returns `BUY` and/or `OBSERVE` signals once crypto threshold markets
-  have been enriched with public BTC/ETH/SOL market data.
+- `/signals` returns `BUY`, `OBSERVE`, and/or `IGNORE` signals once crypto
+  threshold markets have been processed and supported assets are enriched with
+  public BTC/ETH/SOL market data.
 - Market detail exposes a manual refresh action for stale prices; it should write
   a `manual_refresh` row to `api_usage_ledger`.
 - Paper orders use bid/ask based fills and can be traced through
