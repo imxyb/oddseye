@@ -4,7 +4,19 @@ from datetime import datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import JSON, DateTime, ForeignKey, Index, Integer, Numeric, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
@@ -15,13 +27,16 @@ def uuid_str() -> str:
     return str(uuid4())
 
 
-JSONType = JSON
+UUIDType = String(36).with_variant(UUID(as_uuid=False), "postgresql")
+JSONType = JSON().with_variant(JSONB(), "postgresql")
+StringArrayType = JSON().with_variant(ARRAY(Text()), "postgresql")
+BigSerialType = BigInteger().with_variant(Integer(), "sqlite")
 
 
 class Venue(Base):
     __tablename__ = "venues"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     supports_execution: Mapped[bool] = mapped_column(default=False, nullable=False)
@@ -32,7 +47,7 @@ class Venue(Base):
 class PredictionCategory(Base):
     __tablename__ = "prediction_categories"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     slug: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     parent_slug: Mapped[str | None] = mapped_column(String(128))
@@ -44,14 +59,14 @@ class PredictionEvent(Base):
     __tablename__ = "prediction_events"
     __table_args__ = (UniqueConstraint("venue_id", "external_event_id"),)
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     venue_id: Mapped[str] = mapped_column(ForeignKey("venues.id"), nullable=False)
     external_event_id: Mapped[str] = mapped_column(String(256), nullable=False)
     protocol: Mapped[str] = mapped_column(String(64), nullable=False)
     slug: Mapped[str | None] = mapped_column(String(512))
     question: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
-    categories: Mapped[list] = mapped_column(JSONType, default=list, nullable=False)
+    categories: Mapped[list] = mapped_column(StringArrayType, default=list, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     venue_url: Mapped[str | None] = mapped_column(Text)
     image_thumb_url: Mapped[str | None] = mapped_column(Text)
@@ -69,7 +84,7 @@ class PredictionMarket(Base):
     __tablename__ = "prediction_markets"
     __table_args__ = (UniqueConstraint("venue_id", "external_market_id"),)
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     event_id: Mapped[str] = mapped_column(ForeignKey("prediction_events.id"), nullable=False)
     venue_id: Mapped[str] = mapped_column(ForeignKey("venues.id"), nullable=False)
     external_market_id: Mapped[str] = mapped_column(String(256), nullable=False)
@@ -94,7 +109,7 @@ class MarketOutcome(Base):
     __tablename__ = "market_outcomes"
     __table_args__ = (UniqueConstraint("market_id", "outcome_index"),)
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     market_id: Mapped[str] = mapped_column(ForeignKey("prediction_markets.id"), nullable=False)
     outcome_index: Mapped[int] = mapped_column(Integer, nullable=False)
     label: Mapped[str] = mapped_column(String(256), nullable=False)
@@ -110,7 +125,7 @@ class MarketSnapshot(Base):
         Index("idx_market_snapshots_ts", "ts"),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigSerialType, primary_key=True, autoincrement=True)
     market_id: Mapped[str] = mapped_column(ForeignKey("prediction_markets.id"), nullable=False)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     outcome0_label: Mapped[str | None] = mapped_column(String(256))
@@ -144,7 +159,7 @@ class ModelSignal(Base):
         Index("idx_model_signals_market_ts", "market_id", "ts"),
     )
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     market_id: Mapped[str] = mapped_column(ForeignKey("prediction_markets.id"), nullable=False)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     strategy_code: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -156,8 +171,8 @@ class ModelSignal(Base):
     confidence: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
     suggested_notional: Mapped[Decimal | None] = mapped_column(Numeric(20, 8))
     market_quality_score: Mapped[Decimal | None] = mapped_column(Numeric(18, 8))
-    reason_codes: Mapped[list] = mapped_column(JSONType, default=list, nullable=False)
-    risk_flags: Mapped[list] = mapped_column(JSONType, default=list, nullable=False)
+    reason_codes: Mapped[list] = mapped_column(StringArrayType, default=list, nullable=False)
+    risk_flags: Mapped[list] = mapped_column(StringArrayType, default=list, nullable=False)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     raw_json: Mapped[dict] = mapped_column(JSONType, default=dict, nullable=False)
 
@@ -165,7 +180,7 @@ class ModelSignal(Base):
 class PaperAccount(Base):
     __tablename__ = "paper_accounts"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     name: Mapped[str] = mapped_column(String(128), nullable=False)
     starting_cash: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
     cash: Mapped[Decimal] = mapped_column(Numeric(20, 8), nullable=False)
@@ -176,7 +191,7 @@ class PaperAccount(Base):
 class PaperOrder(Base):
     __tablename__ = "paper_orders"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     account_id: Mapped[str] = mapped_column(ForeignKey("paper_accounts.id"), nullable=False)
     market_id: Mapped[str] = mapped_column(ForeignKey("prediction_markets.id"), nullable=False)
     signal_id: Mapped[str | None] = mapped_column(ForeignKey("model_signals.id"))
@@ -195,7 +210,7 @@ class PaperOrder(Base):
 class PaperFill(Base):
     __tablename__ = "paper_fills"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     order_id: Mapped[str] = mapped_column(ForeignKey("paper_orders.id"), nullable=False)
     account_id: Mapped[str] = mapped_column(ForeignKey("paper_accounts.id"), nullable=False)
     market_id: Mapped[str] = mapped_column(ForeignKey("prediction_markets.id"), nullable=False)
@@ -213,7 +228,7 @@ class PaperPosition(Base):
     __tablename__ = "paper_positions"
     __table_args__ = (UniqueConstraint("account_id", "market_id", "outcome_index"),)
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     account_id: Mapped[str] = mapped_column(ForeignKey("paper_accounts.id"), nullable=False)
     market_id: Mapped[str] = mapped_column(ForeignKey("prediction_markets.id"), nullable=False)
     outcome_index: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -229,7 +244,7 @@ class PaperPosition(Base):
 class MarketResolution(Base):
     __tablename__ = "market_resolutions"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     market_id: Mapped[str] = mapped_column(ForeignKey("prediction_markets.id"), nullable=False)
     resolved_outcome_index: Mapped[int | None] = mapped_column(Integer)
     resolved_label: Mapped[str | None] = mapped_column(String(256))
@@ -243,7 +258,7 @@ class MarketResolution(Base):
 class JobRun(Base):
     __tablename__ = "job_runs"
 
-    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=uuid_str)
+    id: Mapped[str] = mapped_column(UUIDType, primary_key=True, default=uuid_str)
     job_name: Mapped[str] = mapped_column(String(128), nullable=False)
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
