@@ -68,4 +68,29 @@ describe("mobile public bundle secret scan", () => {
       rmSync(root, { force: true, recursive: true });
     }
   });
+
+  it("scans Hermes hbc bundles for forbidden secret values", () => {
+    const root = mkdtempSync(join(tmpdir(), "oddseye-secret-scan-"));
+    try {
+      writeFileSync(
+        join(root, "index.hbc"),
+        Buffer.from([0x00, 0x48, 0x42, 0x43, ...Buffer.from("super-secret-token"), 0x00]),
+      );
+
+      const findings = scanSecretFiles(
+        root,
+        ["index.hbc"],
+        buildForbiddenPatterns("super-secret-token"),
+      );
+
+      expect(findings).toEqual([
+        {
+          label: "forbidden secret value #1",
+          path: "index.hbc",
+        },
+      ]);
+    } finally {
+      rmSync(root, { force: true, recursive: true });
+    }
+  });
 });

@@ -12,6 +12,7 @@ const DEFAULT_TEXT_EXTENSIONS = new Set([
   "",
   ".bundle",
   ".cjs",
+  ".hbc",
   ".html",
   ".js",
   ".json",
@@ -53,9 +54,9 @@ export function scanSecretFiles(rootDir, paths, patterns) {
   const findings = [];
 
   for (const file of files) {
-    const content = readFileSync(file, "utf8");
+    const content = readFileSync(file);
     for (const pattern of patterns) {
-      if (content.includes(pattern.value)) {
+      if (content.includes(Buffer.from(pattern.value, "utf8"))) {
         findings.push({
           label: pattern.label,
           path: relative(root, file),

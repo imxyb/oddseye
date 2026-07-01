@@ -258,6 +258,7 @@ npx expo export --platform ios --output-dir dist/ios-public-bundle
 npm run verify:public-bundle -- app app.json babel.config.js src/api src/components src/stores src/theme.ts src/utils dist/ios-public-bundle
 ```
 
+The public bundle scan checks text assets and Expo iOS Hermes `.hbc` bundles.
 To verify real secret values are absent from the mobile source and exported
 bundle without writing them to the repo, pass them at runtime:
 
