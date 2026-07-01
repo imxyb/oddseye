@@ -19,7 +19,14 @@ export const signalKeys = {
 };
 
 export function getSignals(params: SignalsParams = {}) {
-  return apiFetch<SignalsResponse>(`/signals${toQueryString(params)}`);
+  const normalizedParams: SignalsParams = {
+    action: params.action ?? "BUY",
+    category: params.category,
+    minEdge: params.minEdge,
+    limit: params.limit ?? 50,
+  };
+
+  return apiFetch<SignalsResponse>(`/signals${toQueryString(normalizedParams)}`);
 }
 
 export function createPaperOrderFromSignal(

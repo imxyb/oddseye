@@ -27,7 +27,7 @@ interface FilterState {
 export const useFilterStore = create<FilterState>((set) => ({
   category: "crypto",
   protocol: undefined,
-  sort: "quality",
+  sort: "edge",
   minQuality: 65,
   minVolume: 500,
   minLiquidity: 1000,
