@@ -117,6 +117,24 @@ printf 'EXPO_PUBLIC_API_BASE_URL=https://oddseye.fun\n' > .env
 
 ## Production Verification
 
+After migrations and service startup, run the production verifier from the built
+API image. It checks health, login, Radar live data, active signals, usage
+counters, and paper performance metrics in one repeatable command:
+
+```bash
+docker compose -f docker-compose.prod.yml run --rm \
+  -e ODDSEYE_VERIFY_PASSWORD='REPLACE_WITH_PASSWORD' \
+  api python -m app.tools.verify_production \
+  --base-url https://oddseye.fun \
+  --username admin \
+  --password-env ODDSEYE_VERIFY_PASSWORD
+```
+
+The command prints one `[ok]` line per check and exits non-zero on the first
+failed production invariant.
+
+For targeted troubleshooting, the equivalent manual checks are:
+
 ```bash
 curl -fsS https://oddseye.fun/health
 ```
