@@ -81,6 +81,7 @@ export const useAuthStore = create<AuthState>((set) => ({
         isBootstrapped: true,
       });
     } catch (error) {
+      await SecureStore.deleteItemAsync(ACCESS_TOKEN_KEY);
       set({
         token: null,
         user: null,
