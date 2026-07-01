@@ -201,6 +201,17 @@ uv run ruff check .
 
 cd ../mobile
 npm run typecheck
+npm test -- --run
+npx expo export --platform ios --output-dir dist/ios-public-bundle
+npm run verify:public-bundle -- app app.json babel.config.js src/api src/components src/stores src/theme.ts src/utils dist/ios-public-bundle
+```
+
+To verify real secret values are absent from the mobile source and exported
+bundle without writing them to the repo, pass them at runtime:
+
+```bash
+ODDSEYE_FORBIDDEN_BUNDLE_STRINGS='SECRET_1,SECRET_2' \
+  npm run verify:public-bundle -- app src dist/ios-public-bundle
 ```
 
 ## Security Notes
