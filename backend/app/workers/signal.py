@@ -23,6 +23,7 @@ def main() -> None:
         "compute_signals",
         get_settings().config.jobs.signal_seconds,
         compute_signals_job,
+        run_immediately=True,
     )
     run_scheduler(scheduler)
 

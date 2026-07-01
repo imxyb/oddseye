@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
@@ -35,5 +36,17 @@ def add_interval_job(
     name: str,
     seconds: int,
     fn: Callable[[], Awaitable[None]],
+    run_immediately: bool = False,
 ) -> None:
-    scheduler.add_job(fn, "interval", seconds=seconds, id=name, name=name, max_instances=1)
+    kwargs = {}
+    if run_immediately:
+        kwargs["next_run_time"] = datetime.now(UTC)
+    scheduler.add_job(
+        fn,
+        "interval",
+        seconds=seconds,
+        id=name,
+        name=name,
+        max_instances=1,
+        **kwargs,
+    )
