@@ -5,14 +5,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import get_settings
 from app.db.session import get_session_factory
 from app.services.ingestion import job_run
-from app.services.resolution import settle_due_markets
+from app.services.resolution import poll_resolutions
 from app.workers.common import add_interval_job, run_scheduler
 
 
 async def poll_resolutions_job() -> None:
     async with get_session_factory()() as session:
         async with job_run(session, "poll_resolutions") as run:
-            run.records_processed = await settle_due_markets(session)
+            run.records_processed = await poll_resolutions(session, job_run_id=run.id)
         await session.commit()
 
 
