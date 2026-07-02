@@ -150,6 +150,13 @@ def verify_production(
     radar_count = _require_items(radar, "radar")
     checks.append(VerificationCheck("radar", True, f"{radar_count} markets returned"))
 
+    _require_freshness(radar, "radar_freshness")
+    checks.append(VerificationCheck("radar_freshness", True, "freshness and usage hint returned"))
+
+    watchlist = production_client.request("GET", "/radar/markets?category=watchlist&limit=5", token=token)
+    watchlist_count = _require_items(watchlist, "watchlist_markets")
+    checks.append(VerificationCheck("watchlist_markets", True, f"{watchlist_count} watchlist markets returned"))
+
     for sort in ("quality", "volume", "liquidity", "closingSoon"):
         sort_payload = production_client.request(
             "GET",
@@ -188,12 +195,25 @@ def verify_production(
     _require_market_detail(detail)
     checks.append(VerificationCheck("market_detail", True, "quote and liquidity returned"))
 
+    _require_freshness(detail, "market_detail_freshness")
+    checks.append(VerificationCheck("market_detail_freshness", True, "freshness and usage hint returned"))
+
     _require_quality_explanation(detail)
     checks.append(
         VerificationCheck(
             "market_quality_explanation",
             True,
             "score components, reasons, risk flags, and paper gate returned",
+        )
+    )
+
+    refresh = production_client.request("POST", f"/markets/{encoded_market_id}/refresh", token=token)
+    refresh_count = _require_manual_refresh(refresh, first_market)
+    checks.append(
+        VerificationCheck(
+            "market_manual_refresh",
+            True,
+            f"manual refresh processed {refresh_count} market records",
         )
     )
 
@@ -258,6 +278,9 @@ def verify_production(
     bar_count = _require_bars(bars)
     checks.append(VerificationCheck("market_bars", True, f"{bar_count} bars returned"))
 
+    _require_freshness(bars, "market_bars_freshness")
+    checks.append(VerificationCheck("market_bars_freshness", True, "freshness and usage hint returned"))
+
     signals = production_client.request("GET", "/signals?limit=3", token=token)
     signal_count = _require_items(signals, "signals")
     checks.append(VerificationCheck("signals", True, f"{signal_count} signals returned"))
@@ -315,6 +338,9 @@ def verify_production(
             f"{scheduled_count} successful market ingestion job types returned",
         )
     )
+
+    _require_manual_refresh_job(usage)
+    checks.append(VerificationCheck("manual_refresh_job", True, "manual refresh job run recorded"))
 
     performance = production_client.request("GET", "/paper/performance", token=token)
     _require_paper_performance(performance)
@@ -417,6 +443,48 @@ def _require_market_detail(payload: dict[str, Any]) -> None:
     )
     _require(has_quote, "market_detail", "missing bid/ask/spread quote")
     _require(payload.get("liquidity_usd") is not None, "market_detail", "missing liquidity")
+
+
+def _require_freshness(payload: dict[str, Any], name: str) -> None:
+    freshness = payload.get("freshness")
+    _require(isinstance(freshness, dict), name, "missing freshness object")
+    _require(isinstance(freshness.get("is_stale"), bool), name, "missing is_stale boolean")
+    age_seconds = freshness.get("age_seconds")
+    if age_seconds is not None:
+        _require_number(age_seconds, name, "age_seconds")
+        _require(float(age_seconds) >= 0, name, "age_seconds must be non-negative")
+    last_snapshot_at = freshness.get("last_snapshot_at")
+    if last_snapshot_at is not None:
+        _require(isinstance(last_snapshot_at, str) and last_snapshot_at, name, "invalid last_snapshot_at")
+        _parse_iso_datetime(last_snapshot_at, name, "last_snapshot_at")
+
+    usage_hint = freshness.get("codex_usage_hint")
+    _require(isinstance(usage_hint, dict), name, "missing codex_usage_hint")
+    for field in ("today_requests", "month_requests"):
+        _require(
+            isinstance(usage_hint.get(field), int) and not isinstance(usage_hint.get(field), bool),
+            name,
+            f"missing codex_usage_hint.{field}",
+        )
+    fetch_profile = usage_hint.get("fetch_profile")
+    _require(isinstance(fetch_profile, str) and fetch_profile, name, "missing codex_usage_hint.fetch_profile")
+
+
+def _require_manual_refresh(payload: dict[str, Any], expected_market_id: str) -> int:
+    name = "market_manual_refresh"
+    _require(payload.get("market_id") == expected_market_id, name, "market_id mismatch")
+    records_processed = payload.get("records_processed")
+    _require(
+        isinstance(records_processed, int) and not isinstance(records_processed, bool),
+        name,
+        "missing records_processed",
+    )
+    _require(records_processed > 0, name, "manual refresh processed no records")
+    market = payload.get("market")
+    _require(isinstance(market, dict), name, "missing refreshed market")
+    _require(market.get("market_id") == expected_market_id, name, "refreshed market_id mismatch")
+    _require_freshness(market, name)
+    return records_processed
 
 
 def _first_tradable_quote(payload: dict[str, Any]) -> tuple[int, Decimal, Decimal]:
@@ -649,28 +717,40 @@ def _require_scheduled_jobs(payload: dict[str, Any]) -> int:
     return 2 + len(sync_jobs)
 
 
+def _require_manual_refresh_job(payload: dict[str, Any]) -> None:
+    jobs = payload.get("recent_jobs")
+    _require(isinstance(jobs, list), "manual_refresh_job", "missing recent_jobs list")
+    successful_jobs = {
+        job.get("job_name"): job
+        for job in jobs
+        if isinstance(job, dict) and job.get("status") == "success" and isinstance(job.get("job_name"), str)
+    }
+    _require_successful_job(successful_jobs, "manual_refresh", require_records=True, name="manual_refresh_job")
+
+
 def _require_successful_job(
     jobs_by_name: dict[str, Any],
     job_name: str,
     *,
     require_records: bool,
+    name: str = "scheduled_jobs",
 ) -> None:
     job = jobs_by_name.get(job_name)
-    _require(isinstance(job, dict), "scheduled_jobs", f"missing successful {job_name} job")
+    _require(isinstance(job, dict), name, f"missing successful {job_name} job")
     started_at = job.get("started_at")
     finished_at = job.get("finished_at")
-    _require(isinstance(started_at, str) and started_at, "scheduled_jobs", f"{job_name} missing started_at")
-    _require(isinstance(finished_at, str) and finished_at, "scheduled_jobs", f"{job_name} missing finished_at")
-    _parse_iso_datetime(started_at, "scheduled_jobs", f"{job_name} started_at")
-    _parse_iso_datetime(finished_at, "scheduled_jobs", f"{job_name} finished_at")
+    _require(isinstance(started_at, str) and started_at, name, f"{job_name} missing started_at")
+    _require(isinstance(finished_at, str) and finished_at, name, f"{job_name} missing finished_at")
+    _parse_iso_datetime(started_at, name, f"{job_name} started_at")
+    _parse_iso_datetime(finished_at, name, f"{job_name} finished_at")
     records_processed = job.get("records_processed")
     _require(
         isinstance(records_processed, int) and not isinstance(records_processed, bool) and records_processed >= 0,
-        "scheduled_jobs",
+        name,
         f"{job_name} missing records_processed",
     )
     if require_records:
-        _require(records_processed > 0, "scheduled_jobs", f"{job_name} processed no records")
+        _require(records_processed > 0, name, f"{job_name} processed no records")
 
 
 def _parse_iso_datetime(value: str, name: str, label: str) -> datetime:

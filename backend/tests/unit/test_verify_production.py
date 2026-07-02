@@ -44,12 +44,32 @@ class FakeProductionClient:
         return self.text_responses[(method, path)]
 
 
+def _freshness() -> dict:
+    return {
+        "last_snapshot_at": "2026-07-02T00:00:00+00:00",
+        "age_seconds": 60,
+        "is_stale": False,
+        "codex_usage_hint": {
+            "today_requests": 3,
+            "month_requests": 9,
+            "fetch_profile": "light",
+        },
+    }
+
+
 def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
     return {
         ("GET", "/health"): {"status": "ok"},
         ("POST", "/auth/login"): {"access_token": "token-123"},
         ("GET", "/auth/me"): {"username": "admin", "role": "admin"},
-        ("GET", "/radar/markets?limit=3"): {"items": [{"market_id": "market-1"}]},
+        ("GET", "/radar/markets?limit=3"): {
+            "items": [{"market_id": "market-1"}],
+            "freshness": _freshness(),
+        },
+        ("GET", "/radar/markets?category=watchlist&limit=5"): {
+            "items": [{"market_id": "watch-market"}],
+            "freshness": _freshness(),
+        },
         ("GET", "/radar/markets?category=crypto&sort=quality&limit=5"): {
             "items": [
                 {"market_id": "quality-1", "market_quality_score": 91, "closes_at": "2026-07-03T00:00:00+00:00"},
@@ -101,6 +121,15 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
                 "risk_flags": [],
                 "passes_paper_gate": True,
             },
+            "freshness": _freshness(),
+        },
+        ("POST", "/markets/market-1/refresh"): {
+            "market_id": "market-1",
+            "records_processed": 1,
+            "market": {
+                "market_id": "market-1",
+                "freshness": _freshness(),
+            },
         },
         ("POST", "/paper/orders"): [
             {
@@ -127,7 +156,10 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
         (
             "GET",
             "/markets/market-1/bars?range=7d&resolution=hour1",
-        ): {"bars": [{"t": 1, "yes_bid": 0.48, "yes_ask": 0.5}]},
+        ): {
+            "bars": [{"t": 1, "yes_bid": 0.48, "yes_ask": 0.5}],
+            "freshness": _freshness(),
+        },
         ("GET", "/signals?limit=3"): {"items": [{"signal_id": "signal-1"}]},
         ("GET", "/signals?category=crypto&limit=20"): {
             "items": [
@@ -195,6 +227,14 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
                     "status": "success",
                     "records_processed": 6,
                     "codex_requests_used": 0,
+                },
+                {
+                    "job_name": "manual_refresh",
+                    "started_at": "2026-07-02T00:03:00+00:00",
+                    "finished_at": "2026-07-02T00:03:01+00:00",
+                    "status": "success",
+                    "records_processed": 1,
+                    "codex_requests_used": 1,
                 },
             ],
         },
@@ -280,6 +320,8 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "login",
         "auth_me",
         "radar",
+        "radar_freshness",
+        "watchlist_markets",
         "radar_sort_quality",
         "radar_sort_volume",
         "radar_sort_liquidity",
@@ -287,15 +329,19 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "crypto_markets",
         "macro_markets",
         "market_detail",
+        "market_detail_freshness",
         "market_quality_explanation",
+        "market_manual_refresh",
         "paper_manual_order",
         "paper_manual_sell_order",
         "market_bars",
+        "market_bars_freshness",
         "signals",
         "crypto_threshold_signal",
         "paper_signal_order",
         "usage",
         "scheduled_jobs",
+        "manual_refresh_job",
         "paper_performance",
         "paper_review",
         "paper_positions",
@@ -307,6 +353,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("POST", "/auth/login", None, {"username": "admin", "password": "secret"}),
         ("GET", "/auth/me", "token-123", None),
         ("GET", "/radar/markets?limit=3", "token-123", None),
+        ("GET", "/radar/markets?category=watchlist&limit=5", "token-123", None),
         ("GET", "/radar/markets?category=crypto&sort=quality&limit=5", "token-123", None),
         ("GET", "/radar/markets?category=crypto&sort=volume&limit=5", "token-123", None),
         ("GET", "/radar/markets?category=crypto&sort=liquidity&limit=5", "token-123", None),
@@ -314,6 +361,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/radar/markets?category=crypto&limit=3", "token-123", None),
         ("GET", "/radar/markets?category=economics&limit=3", "token-123", None),
         ("GET", "/markets/market-1", "token-123", None),
+        ("POST", "/markets/market-1/refresh", "token-123", None),
         (
             "POST",
             "/paper/orders",
@@ -370,6 +418,37 @@ def test_verify_production_rejects_empty_live_signal_response() -> None:
         )
 
 
+def test_verify_production_rejects_missing_radar_freshness() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/radar/markets?limit=3")] = {"items": [{"market_id": "market-1"}]}
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="radar_freshness"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_missing_watchlist_markets() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/radar/markets?category=watchlist&limit=5")] = {
+        "items": [],
+        "freshness": _freshness(),
+    }
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="watchlist_markets"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
 def test_verify_production_rejects_login_token_without_config_user_identity() -> None:
     responses = _successful_responses()
     responses[("GET", "/auth/me")] = {"username": "other", "role": "admin"}
@@ -395,6 +474,24 @@ def test_verify_production_rejects_unsorted_radar_dimension() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="radar_sort_volume"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_manual_refresh_without_records() -> None:
+    responses = _successful_responses()
+    responses[("POST", "/markets/market-1/refresh")] = {
+        "market_id": "market-1",
+        "records_processed": 0,
+        "market": {"market_id": "market-1", "freshness": _freshness()},
+    }
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="market_manual_refresh"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",
@@ -453,6 +550,7 @@ def test_verify_production_rejects_missing_quality_explanation() -> None:
         "outcomes": [{"index": 0, "bid": 0.48, "ask": 0.5, "spread": 0.02}],
         "liquidity_usd": 25000,
         "market_quality_score": 80,
+        "freshness": _freshness(),
     }
     client = FakeProductionClient(responses, _successful_text_responses())
 
@@ -584,6 +682,24 @@ def test_verify_production_rejects_missing_ingest_job_run() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="scheduled_jobs"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_missing_manual_refresh_job_run() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/settings/usage")]["recent_jobs"] = [
+        job
+        for job in responses[("GET", "/settings/usage")]["recent_jobs"]
+        if job["job_name"] != "manual_refresh"
+    ]
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="manual_refresh_job"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",
