@@ -187,8 +187,12 @@ def verify_production(
     _require_freshness(radar, "radar_freshness")
     checks.append(VerificationCheck("radar_freshness", True, "freshness and usage hint returned"))
 
+    _require_no_seed_demo_data(radar, "radar")
+    checks.append(VerificationCheck("real_codex_data", True, "radar payload contains no seed demo identifiers"))
+
     watchlist = production_client.request("GET", "/radar/markets?category=watchlist&limit=5", token=token)
     watchlist_count = _require_items(watchlist, "watchlist_markets")
+    _require_no_seed_demo_data(watchlist, "watchlist")
     checks.append(VerificationCheck("watchlist_markets", True, f"{watchlist_count} watchlist markets returned"))
 
     for sort in ("quality", "volume", "liquidity", "closingSoon"):
@@ -198,6 +202,7 @@ def verify_production(
             token=token,
         )
         sorted_count = _require_radar_sort(sort_payload, sort)
+        _require_no_seed_demo_data(sort_payload, f"radar_sort_{sort}")
         direction = "ascending" if sort == "closingSoon" else "descending"
         checks.append(
             VerificationCheck(
@@ -213,6 +218,7 @@ def verify_production(
         token=token,
     )
     crypto_count = _require_items(crypto_markets, "crypto_markets")
+    _require_no_seed_demo_data(crypto_markets, "crypto_markets")
     checks.append(VerificationCheck("crypto_markets", True, f"{crypto_count} markets returned"))
 
     macro_markets = production_client.request(
@@ -221,12 +227,14 @@ def verify_production(
         token=token,
     )
     macro_count = _require_items(macro_markets, "macro_markets")
+    _require_no_seed_demo_data(macro_markets, "macro_markets")
     checks.append(VerificationCheck("macro_markets", True, f"{macro_count} markets returned"))
 
     first_market = _first_market_id(radar)
     encoded_market_id = quote(first_market, safe="")
     detail = production_client.request("GET", f"/markets/{encoded_market_id}", token=token)
     _require_market_detail(detail)
+    _require_no_seed_demo_data(detail, "market_detail")
     checks.append(VerificationCheck("market_detail", True, "quote and liquidity returned"))
 
     _require_freshness(detail, "market_detail_freshness")
@@ -317,9 +325,11 @@ def verify_production(
 
     signals = production_client.request("GET", "/signals?limit=3", token=token)
     signal_count = _require_items(signals, "signals")
+    _require_no_seed_demo_data(signals, "signals")
     checks.append(VerificationCheck("signals", True, f"{signal_count} signals returned"))
 
     crypto_signals = production_client.request("GET", "/signals?category=crypto&limit=100", token=token)
+    _require_no_seed_demo_data(crypto_signals, "crypto_signals")
     crypto_signal = _require_crypto_threshold_signal(crypto_signals)
     checks.append(
         VerificationCheck(
@@ -330,6 +340,7 @@ def verify_production(
     )
 
     macro_signals = production_client.request("GET", "/signals?category=economics&limit=5", token=token)
+    _require_no_seed_demo_data(macro_signals, "macro_signals")
     macro_signal = _require_macro_observe_signal(macro_signals)
     checks.append(
         VerificationCheck(
@@ -527,6 +538,29 @@ def _require_items(payload: dict[str, Any], name: str) -> int:
     _require(isinstance(items, list), name, "missing items list")
     _require(len(items) > 0, name, "expected live items")
     return len(items)
+
+
+def _require_no_seed_demo_data(payload: Any, source: str) -> None:
+    for value in _iter_payload_values(payload):
+        if isinstance(value, str):
+            lowered = value.lower()
+            _require(
+                "seed-" not in lowered and "seed_" not in lowered,
+                "real_codex_data",
+                f"{source} contains seed demo identifier {value!r}",
+            )
+
+
+def _iter_payload_values(payload: Any):
+    if isinstance(payload, dict):
+        for value in payload.values():
+            yield from _iter_payload_values(value)
+        return
+    if isinstance(payload, list):
+        for value in payload:
+            yield from _iter_payload_values(value)
+        return
+    yield payload
 
 
 def _require_authenticated_user(payload: dict[str, Any], *, expected_username: str) -> None:

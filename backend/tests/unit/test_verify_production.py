@@ -412,6 +412,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "auth_required",
         "radar",
         "radar_freshness",
+        "real_codex_data",
         "watchlist_markets",
         "radar_sort_quality",
         "radar_sort_volume",
@@ -651,6 +652,23 @@ def test_verify_production_rejects_login_token_without_config_user_identity() ->
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="auth_me"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_seed_demo_market_data() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/radar/markets?limit=3")] = {
+        "items": [{"market_id": "seed-market-1", "question": "Seed demo market"}],
+        "freshness": _freshness(),
+    }
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="real_codex_data"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",
