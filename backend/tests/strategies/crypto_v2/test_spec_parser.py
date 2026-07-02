@@ -95,6 +95,21 @@ def test_parse_range_close() -> None:
     assert result.spec.threshold is None
 
 
+def test_reject_range_touch_market() -> None:
+    result = CryptoMarketSpecParserV2().parse(
+        _market(
+            "m-range-touch",
+            "Will BTC touch either $100,000 or $110,000 before July 31, 2026?",
+            closes_at=datetime(2026, 7, 31, 23, 59, 59, tzinfo=UTC),
+        ),
+        _event("e-range-touch"),
+    )
+
+    assert result.failed
+    assert result.spec is None
+    assert "RANGE_TOUCH_UNSUPPORTED" in result.ambiguity_flags
+
+
 def test_reject_no_deadline() -> None:
     result = CryptoMarketSpecParserV2().parse(
         _market("m6", "Will BTC be above $110,000?", closes_at=None),

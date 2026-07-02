@@ -66,7 +66,13 @@ class CryptoMarketSpecParserV2:
 
         thresholds = _extract_thresholds(question)
         market_type = _market_type(upper, len(thresholds))
-        if market_type == "range_close":
+        if market_type == "range_touch":
+            flags.append("RANGE_TOUCH_UNSUPPORTED")
+            if len(thresholds) < 2:
+                flags.append("NO_THRESHOLD")
+            lower_threshold, upper_threshold = sorted(thresholds[:2]) if len(thresholds) >= 2 else (None, None)
+            threshold = None
+        elif market_type == "range_close":
             if len(thresholds) < 2:
                 flags.append("NO_THRESHOLD")
             lower_threshold, upper_threshold = sorted(thresholds[:2]) if len(thresholds) >= 2 else (None, None)
@@ -154,9 +160,11 @@ def _looks_like_price(token: str, suffix: str) -> bool:
 
 
 def _market_type(question_upper: str, threshold_count: int) -> str:
+    hit = any(word in question_upper for word in ("HIT", "TOUCH", "REACH", "TRADE AT", "FALL", "DIP"))
+    if hit and threshold_count >= 2:
+        return "range_touch"
     if "BETWEEN" in question_upper or " RANGE " in f" {question_upper} ":
         return "range_close"
-    hit = any(word in question_upper for word in ("HIT", "TOUCH", "REACH", "TRADE AT", "FALL", "DIP"))
     below = any(word in question_upper for word in ("BELOW", "UNDER", "LESS THAN", "FALL", "DIP", "DROP"))
     if hit and below:
         return "hit_below"
