@@ -35,9 +35,9 @@ class CodexSection(BaseModel):
     usage_policy: Literal["advisory_only"] = "advisory_only"
     global_monthly_reference_budget: int = 1_000_000
     external_daily_usage_estimate: int = 12_000
-    radar_daily_target_requests: int = 2_000
-    radar_daily_review_threshold: int = 5_000
-    radar_monthly_review_threshold: int = 150_000
+    radar_daily_target_requests: int = 8_000
+    radar_daily_review_threshold: int = 10_000
+    radar_monthly_review_threshold: int = 300_000
     fetch_profile: Literal["light", "normal", "aggressive"] = "light"
 
 
@@ -64,12 +64,12 @@ class PaperSection(BaseModel):
 
 class JobsSection(BaseModel):
     categories_refresh_cron: str = "0 3 * * *"
-    market_discovery_seconds: int = 1_800
-    hot_market_snapshot_seconds: int = 300
-    warm_market_snapshot_seconds: int = 1_800
-    cold_market_snapshot_seconds: int = 21_600
-    signal_seconds: int = 300
-    paper_mark_seconds: int = 300
+    market_discovery_seconds: int = 300
+    hot_market_snapshot_seconds: int = 30
+    warm_market_snapshot_seconds: int = 30
+    cold_market_snapshot_seconds: int = 600
+    signal_seconds: int = 60
+    paper_mark_seconds: int = 60
     resolution_poll_seconds: int = 7_200
 
 

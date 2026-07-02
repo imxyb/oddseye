@@ -18,9 +18,9 @@ codex:
   usage_policy: advisory_only
   global_monthly_reference_budget: 1000000
   external_daily_usage_estimate: 12000
-  radar_daily_target_requests: 2000
-  radar_daily_review_threshold: 5000
-  radar_monthly_review_threshold: 150000
+  radar_daily_target_requests: 8000
+  radar_daily_review_threshold: 10000
+  radar_monthly_review_threshold: 300000
   fetch_profile: light
 
 radar:
@@ -48,12 +48,12 @@ paper:
 
 jobs:
   categories_refresh_cron: "0 3 * * *"
-  market_discovery_seconds: 1800
-  hot_market_snapshot_seconds: 300
-  warm_market_snapshot_seconds: 1800
-  cold_market_snapshot_seconds: 21600
-  signal_seconds: 300
-  paper_mark_seconds: 300
+  market_discovery_seconds: 300
+  hot_market_snapshot_seconds: 30
+  warm_market_snapshot_seconds: 30
+  cold_market_snapshot_seconds: 600
+  signal_seconds: 60
+  paper_mark_seconds: 60
   resolution_poll_seconds: 7200
 
 ingestion_tiers:
