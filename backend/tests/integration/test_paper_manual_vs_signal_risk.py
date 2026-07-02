@@ -606,3 +606,195 @@ async def test_new_buy_is_rejected_when_market_closes_within_thirty_minutes(tmp_
         assert response["order"]["status"] == "rejected"
         assert response["order"]["reason"] == "market_closing_soon"
     await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_auto_buy_is_rejected_when_asset_horizon_position_limit_is_reached(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'asset-horizon-count.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("9900"))
+        session.add_all([venue, account])
+        await session.flush()
+
+        first = await _add_crypto_market(
+            session,
+            venue,
+            "btc-60000",
+            "Will the price of Bitcoin be above $60,000 on July 10, 2026?",
+        )
+        second = await _add_crypto_market(
+            session,
+            venue,
+            "btc-62000",
+            "Will the price of Bitcoin be above $62,000 on July 10, 2026?",
+        )
+        candidate = await _add_crypto_market(
+            session,
+            venue,
+            "btc-64000",
+            "Will the price of Bitcoin be above $64,000 on July 10, 2026?",
+        )
+        session.add_all(
+            [
+                PaperPosition(
+                    account_id=account.id,
+                    market_id=first.id,
+                    outcome_index=0,
+                    quantity=Decimal("50"),
+                    avg_price=Decimal("0.50"),
+                    mark_price=Decimal("0.50"),
+                    realized_pnl=Decimal("0"),
+                    unrealized_pnl=Decimal("0"),
+                    status="open",
+                ),
+                PaperPosition(
+                    account_id=account.id,
+                    market_id=second.id,
+                    outcome_index=0,
+                    quantity=Decimal("50"),
+                    avg_price=Decimal("0.50"),
+                    mark_price=Decimal("0.50"),
+                    realized_pnl=Decimal("0"),
+                    unrealized_pnl=Decimal("0"),
+                    status="open",
+                ),
+            ]
+        )
+        await session.commit()
+
+        blocked = await create_paper_order(
+            session,
+            PaperOrderInput(
+                account_id=account.id,
+                market_id=candidate.id,
+                side="BUY",
+                outcome_index=0,
+                limit_price=Decimal("0.50"),
+                quantity=Decimal("10"),
+                enforce_auto_gates=True,
+            ),
+        )
+        manual = await create_paper_order(
+            session,
+            PaperOrderInput(
+                account_id=account.id,
+                market_id=candidate.id,
+                side="BUY",
+                outcome_index=0,
+                limit_price=Decimal("0.502"),
+                quantity=Decimal("10"),
+            ),
+        )
+
+        assert blocked["order"]["status"] == "rejected"
+        assert blocked["order"]["reason"] == "asset_horizon_position_limit_reached"
+        assert manual["order"]["status"] == "filled"
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_auto_buy_is_rejected_when_asset_horizon_exposure_limit_is_exceeded(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'asset-horizon-exposure.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("9760"))
+        session.add_all([venue, account])
+        await session.flush()
+
+        existing = await _add_crypto_market(
+            session,
+            venue,
+            "btc-60000",
+            "Will the price of Bitcoin be above $60,000 on July 10, 2026?",
+        )
+        candidate = await _add_crypto_market(
+            session,
+            venue,
+            "btc-62000",
+            "Will the price of Bitcoin be above $62,000 on July 10, 2026?",
+        )
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                market_id=existing.id,
+                outcome_index=0,
+                quantity=Decimal("480"),
+                avg_price=Decimal("0.50"),
+                mark_price=Decimal("0.50"),
+                realized_pnl=Decimal("0"),
+                unrealized_pnl=Decimal("0"),
+                status="open",
+            )
+        )
+        await session.commit()
+
+        response = await create_paper_order(
+            session,
+            PaperOrderInput(
+                account_id=account.id,
+                market_id=candidate.id,
+                side="BUY",
+                outcome_index=0,
+                limit_price=Decimal("0.50"),
+                quantity=Decimal("40"),
+                enforce_auto_gates=True,
+            ),
+        )
+
+        assert response["order"]["status"] == "rejected"
+        assert response["order"]["reason"] == "asset_horizon_exposure_limit_reached"
+    await sessionmaker.bind.dispose()
+
+
+async def _add_crypto_market(
+    session,
+    venue: Venue,
+    external_id: str,
+    question: str,
+) -> PredictionMarket:
+    event = PredictionEvent(
+        venue_id=venue.id,
+        external_event_id=f"{external_id}-event",
+        protocol="POLYMARKET",
+        question=question,
+        categories=["crypto"],
+        status="OPEN",
+        closes_at=datetime(2026, 7, 11, tzinfo=UTC),
+    )
+    session.add(event)
+    await session.flush()
+    market = PredictionMarket(
+        event_id=event.id,
+        venue_id=venue.id,
+        external_market_id=f"{external_id}-market",
+        protocol="POLYMARKET",
+        question=question,
+        status="OPEN",
+        closes_at=event.closes_at,
+        resolution_source="Coinbase BTC/USD index",
+    )
+    session.add(market)
+    await session.flush()
+    session.add(
+        MarketSnapshot(
+            market_id=market.id,
+            ts=datetime.now(UTC),
+            outcome0_label="Yes",
+            outcome0_best_bid=Decimal("0.49"),
+            outcome0_best_ask=Decimal("0.50"),
+            outcome0_spread=Decimal("0.01"),
+            outcome1_label="No",
+            outcome1_best_bid=Decimal("0.49"),
+            outcome1_best_ask=Decimal("0.50"),
+            outcome1_spread=Decimal("0.01"),
+            liquidity_usd=Decimal("25000"),
+            volume_usd_24h=Decimal("5000"),
+            market_quality_score=Decimal("80"),
+        )
+    )
+    return market

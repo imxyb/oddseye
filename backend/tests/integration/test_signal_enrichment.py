@@ -170,6 +170,105 @@ strategies:
 
 
 @pytest.mark.asyncio
+async def test_auto_execution_prioritizes_highest_edge_when_asset_horizon_slot_is_scarce(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "app.yaml"
+    config_path.write_text(
+        """
+strategies:
+  crypto_threshold_v2:
+    paper_execution:
+      auto_execute_signals: true
+      max_asset_horizon_positions: 1
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_CONFIG_PATH", str(config_path))
+
+    from app.core.config import get_settings
+    from app.services.signals import AutoExecutionCandidate, _auto_execute_v2_signals
+
+    get_settings.cache_clear()
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-auto-priority.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with sessionmaker() as session:
+            venue = Venue(code="POLYMARKET", name="Polymarket")
+            account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("10000"))
+            session.add_all([venue, account])
+            await session.flush()
+            low_market = await _btc_market_with_snapshot(
+                session,
+                venue,
+                "low-edge",
+                "Will the price of Bitcoin be above $60,000 on July 10, 2026?",
+            )
+            high_market = await _btc_market_with_snapshot(
+                session,
+                venue,
+                "high-edge",
+                "Will the price of Bitcoin be above $62,000 on July 10, 2026?",
+            )
+            low_signal = ModelSignal(
+                market_id=low_market.id,
+                ts=datetime.now(UTC),
+                strategy_code="crypto_threshold_v2",
+                action="BUY",
+                side="YES",
+                model_probability=Decimal("0.60"),
+                executable_price=Decimal("0.50"),
+                edge=Decimal("0.10"),
+                confidence=Decimal("0.90"),
+                suggested_notional=Decimal("10"),
+                market_quality_score=Decimal("80"),
+                reason_codes=["EXECUTION_GATE_PASSED"],
+                risk_flags=[],
+            )
+            high_signal = ModelSignal(
+                market_id=high_market.id,
+                ts=datetime.now(UTC),
+                strategy_code="crypto_threshold_v2",
+                action="BUY",
+                side="YES",
+                model_probability=Decimal("0.75"),
+                executable_price=Decimal("0.50"),
+                edge=Decimal("0.25"),
+                confidence=Decimal("0.95"),
+                suggested_notional=Decimal("10"),
+                market_quality_score=Decimal("80"),
+                reason_codes=["EXECUTION_GATE_PASSED"],
+                risk_flags=[],
+            )
+            session.add_all([low_signal, high_signal])
+            await session.flush()
+
+            await _auto_execute_v2_signals(
+                session,
+                account=account,
+                candidates=[
+                    AutoExecutionCandidate(model_signal=low_signal, current_position=None),
+                    AutoExecutionCandidate(model_signal=high_signal, current_position=None),
+                ],
+            )
+            await session.commit()
+
+            orders = (
+                await session.execute(select(PaperOrder).order_by(PaperOrder.created_at.asc(), PaperOrder.id.asc()))
+            ).scalars().all()
+
+        order_by_signal = {order.signal_id: order for order in orders}
+        assert order_by_signal[high_signal.id].status == "filled"
+        assert order_by_signal[low_signal.id].status == "rejected"
+        assert order_by_signal[low_signal.id].reason == "asset_horizon_position_limit_reached"
+    finally:
+        get_settings.cache_clear()
+        await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
 async def test_compute_crypto_signals_v2_skips_kalshi_crypto_market(tmp_path) -> None:
     sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-skip-kalshi.db'}")
     async with sessionmaker.bind.begin() as conn:
@@ -992,3 +1091,57 @@ async def _crypto_market_with_snapshot(
         )
     )
     return venue, market
+
+
+async def _btc_market_with_snapshot(
+    session,
+    venue: Venue,
+    external_id: str,
+    question: str,
+) -> PredictionMarket:
+    event = PredictionEvent(
+        venue_id=venue.id,
+        external_event_id=f"{external_id}-event",
+        protocol="POLYMARKET",
+        question=question,
+        categories=["crypto", "bitcoin"],
+        status="OPEN",
+    )
+    session.add(event)
+    await session.flush()
+    market = PredictionMarket(
+        event_id=event.id,
+        venue_id=venue.id,
+        external_market_id=f"{external_id}-market",
+        protocol="POLYMARKET",
+        question=event.question,
+        status="OPEN",
+        closes_at=datetime(2026, 7, 10, tzinfo=UTC),
+        resolution_source="Coinbase BTC/USD index",
+        raw_json={
+            "id": f"{external_id}-market",
+            "market": {"id": f"{external_id}-market"},
+            "outcome0": {"label": "Yes"},
+            "outcome1": {"label": "No"},
+        },
+    )
+    session.add(market)
+    await session.flush()
+    session.add(
+        MarketSnapshot(
+            market_id=market.id,
+            ts=datetime.now(UTC),
+            outcome0_best_bid=Decimal("0.49"),
+            outcome0_best_ask=Decimal("0.50"),
+            outcome0_spread=Decimal("0.01"),
+            outcome1_best_bid=Decimal("0.49"),
+            outcome1_best_ask=Decimal("0.50"),
+            outcome1_spread=Decimal("0.01"),
+            outcome0_liquidity=Decimal("25000"),
+            outcome1_liquidity=Decimal("25000"),
+            liquidity_usd=Decimal("25000"),
+            volume_usd_24h=Decimal("5000"),
+            market_quality_score=Decimal("80"),
+        )
+    )
+    return market

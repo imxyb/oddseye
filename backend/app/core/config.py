@@ -151,6 +151,7 @@ class CryptoThresholdV2ExitsSection(BaseModel):
 class CryptoThresholdV2PaperExecutionSection(BaseModel):
     use_bid_ask: bool = True
     auto_execute_signals: bool = True
+    max_asset_horizon_positions: int = 2
     price_slippage_ct: Decimal = Decimal("0.0025")
     require_top_of_book_depth: bool = True
 

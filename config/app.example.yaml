@@ -123,6 +123,7 @@ strategies:
     paper_execution:
       use_bid_ask: true
       auto_execute_signals: true
+      max_asset_horizon_positions: 2
       price_slippage_ct: 0.0025
       require_top_of_book_depth: true
     real_execution:

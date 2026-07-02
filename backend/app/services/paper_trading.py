@@ -25,6 +25,8 @@ from app.db.models import (
 from app.paper.engine import PaperAccountState, PaperOrderRequest, PaperTradingEngine, SnapshotQuote
 from app.services.bootstrap import ensure_default_paper_account
 from app.services.market_data import latest_snapshot_for_market
+from app.strategies.crypto_v2.spec import CryptoMarketSpec
+from app.strategies.crypto_v2.spec_parser import CryptoMarketSpecParserV2
 
 
 @dataclass(frozen=True)
@@ -507,23 +509,103 @@ async def _risk_error(
             return "market_exposure_exceeds_5pct_equity"
         if market.closes_at is not None and _aware(market.closes_at) <= utcnow() + timedelta(minutes=30):
             return "market_closing_soon"
+    event = await session.get(PredictionEvent, market.event_id)
     if order_input.side.upper() == "BUY" and order_input.enforce_auto_gates and latest is not None:
         if latest.market_quality_score is not None and latest.market_quality_score < Decimal("65"):
             return "market_quality_below_gate"
         spread = latest.outcome0_spread if order_input.outcome_index == 0 else latest.outcome1_spread
         if spread is not None and spread > Decimal("0.08"):
             return "spread_above_gate"
+        if event is not None:
+            portfolio_error = await _crypto_v2_portfolio_error(
+                session,
+                account_id=account.id,
+                market=market,
+                event=event,
+                notional=notional,
+                equity=equity,
+            )
+            if portfolio_error:
+                return portfolio_error
     if order_input.enforce_auto_gates and market.closes_at is not None and _aware(market.closes_at) <= utcnow():
         return "market_closed"
     daily_loss = await _daily_loss(session, account.id)
     if order_input.side.upper() == "BUY" and daily_loss <= -(equity * Decimal(str(settings.max_daily_loss_pct))):
         return "daily_loss_limit_reached"
-    event = await session.get(PredictionEvent, market.event_id)
     if order_input.side.upper() == "BUY" and event is not None:
         exposure = await _category_exposure(session, account.id, event.categories)
         if exposure + notional > equity * Decimal(str(settings.max_category_exposure_pct)):
             return "category_exposure_exceeds_15pct_equity"
     return None
+
+
+async def _crypto_v2_portfolio_error(
+    session: AsyncSession,
+    *,
+    account_id: str,
+    market: PredictionMarket,
+    event: PredictionEvent,
+    notional: Decimal,
+    equity: Decimal,
+) -> str | None:
+    if "crypto" not in {str(category).lower() for category in event.categories or []}:
+        return None
+    strategy = get_settings().config.strategies.crypto_threshold_v2
+    parser = CryptoMarketSpecParserV2()
+    parsed = parser.parse(market, event)
+    if parsed.failed or parsed.spec is None:
+        return None
+
+    exposure, position_count = await _asset_horizon_portfolio_state(
+        session,
+        account_id=account_id,
+        target_spec=parsed.spec,
+        parser=parser,
+    )
+    max_positions = strategy.paper_execution.max_asset_horizon_positions
+    if max_positions > 0 and position_count >= max_positions:
+        return "asset_horizon_position_limit_reached"
+
+    exposure_limit = equity * Decimal(str(strategy.sizing.max_asset_horizon_exposure_pct))
+    if exposure_limit > 0 and exposure + notional > exposure_limit:
+        return "asset_horizon_exposure_limit_reached"
+    return None
+
+
+async def _asset_horizon_portfolio_state(
+    session: AsyncSession,
+    *,
+    account_id: str,
+    target_spec: CryptoMarketSpec,
+    parser: CryptoMarketSpecParserV2,
+) -> tuple[Decimal, int]:
+    rows = await session.execute(
+        select(PaperPosition, PredictionMarket, PredictionEvent)
+        .join(PredictionMarket, PaperPosition.market_id == PredictionMarket.id)
+        .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
+        .where(
+            PaperPosition.account_id == account_id,
+            PaperPosition.status == "open",
+            PaperPosition.quantity > 0,
+        )
+    )
+    target_bucket = _horizon_bucket(target_spec.window_end)
+    exposure = Decimal("0")
+    position_count = 0
+    for position, position_market, position_event in rows.all():
+        parsed = parser.parse(position_market, position_event)
+        if parsed.failed or parsed.spec is None:
+            continue
+        if parsed.spec.asset != target_spec.asset or _horizon_bucket(parsed.spec.window_end) != target_bucket:
+            continue
+        exposure += position.quantity * (position.mark_price or position.avg_price)
+        position_count += 1
+    return exposure, position_count
+
+
+def _horizon_bucket(value: datetime) -> str:
+    iso = _aware(value).date().isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
 
 
 async def _account_equity(session: AsyncSession, account: PaperAccount) -> Decimal:

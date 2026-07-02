@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 from typing import Any
@@ -40,6 +40,12 @@ from app.strategies.crypto_v2.strategy import (
     V2StrategyResult,
 )
 from app.strategies.macro_calendar import macro_v1_observe_only_signal
+
+
+@dataclass(frozen=True)
+class AutoExecutionCandidate:
+    model_signal: ModelSignal
+    current_position: PositionState | None
 
 
 async def list_signals(
@@ -179,6 +185,7 @@ async def compute_crypto_signals(
         .order_by(MarketSnapshot.ts.desc())
     )
     seen: set[str] = set()
+    auto_candidates: list[AutoExecutionCandidate] = []
     count = 0
     for market, event, snapshot in rows.all():
         if market.id in seen:
@@ -249,13 +256,14 @@ async def compute_crypto_signals(
         model_signal = _model_signal_from_result(result)
         session.add(model_signal)
         await session.flush()
-        await _auto_execute_v2_signal(
-            session,
-            account=account,
-            model_signal=model_signal,
-            current_position=await _current_position_state(session, account.id, market.id),
+        auto_candidates.append(
+            AutoExecutionCandidate(
+                model_signal=model_signal,
+                current_position=await _current_position_state(session, account.id, market.id),
+            )
         )
         count += 1
+    await _auto_execute_v2_signals(session, account=account, candidates=auto_candidates)
     if owns_provider and hasattr(provider, "aclose"):
         await provider.aclose()
     return count
@@ -532,6 +540,30 @@ async def _auto_execute_v2_signal(
         ),
     )
     _merge_signal_raw_json(model_signal, {"auto_order": response})
+
+
+async def _auto_execute_v2_signals(
+    session: AsyncSession,
+    *,
+    account: PaperAccount,
+    candidates: list[AutoExecutionCandidate],
+) -> None:
+    for candidate in sorted(candidates, key=_auto_execution_sort_key):
+        await _auto_execute_v2_signal(
+            session,
+            account=account,
+            model_signal=candidate.model_signal,
+            current_position=candidate.current_position,
+        )
+
+
+def _auto_execution_sort_key(candidate: AutoExecutionCandidate) -> tuple[int, Decimal, Decimal, Decimal, str]:
+    signal = candidate.model_signal
+    action_rank = {"EXIT": 0, "REDUCE": 1, "BUY": 2}.get(signal.action, 3)
+    edge = signal.edge or Decimal("0")
+    quality = signal.market_quality_score or Decimal("0")
+    confidence = signal.confidence or Decimal("0")
+    return (action_rank, -edge, -quality, -confidence, signal.id)
 
 
 def _auto_limit_price(executable_price: Decimal, side: str) -> Decimal:
