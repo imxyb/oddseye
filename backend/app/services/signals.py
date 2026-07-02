@@ -63,6 +63,12 @@ class AutoExecutionCandidate:
     current_position: PositionState | None
 
 
+@dataclass(frozen=True)
+class AssetSnapshotCacheEntry:
+    snapshot: Any
+    fetched_at: datetime
+
+
 async def list_signals(
     session: AsyncSession,
     action: str | None = None,
@@ -192,7 +198,7 @@ async def compute_crypto_signals(
     market_data = CryptoMarketDataService(provider)
     orderbooks = PredictionOrderBookService()
     account = await ensure_default_paper_account(session)
-    asset_cache: dict[str, Any] = {}
+    asset_cache: dict[str, AssetSnapshotCacheEntry] = {}
     rows = await session.execute(
         select(PredictionMarket, PredictionEvent, MarketSnapshot)
         .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
@@ -227,9 +233,13 @@ async def compute_crypto_signals(
             else:
                 result = strategy.blocked_from_parse(market, event, snapshot)
         else:
-            if parsed.spec.asset not in asset_cache:
-                asset_cache[parsed.spec.asset] = await market_data.get_asset_snapshot(parsed.spec.asset)
-            asset_snapshot = asset_cache[parsed.spec.asset]
+            asset_snapshot = await _cached_asset_snapshot(
+                market_data=market_data,
+                asset_cache=asset_cache,
+                asset=parsed.spec.asset,
+                cache_seconds=strategy_config.data_freshness.asset_snapshot_cache_seconds,
+                spot_seconds=strategy_config.data_freshness.spot_seconds,
+            )
             if asset_snapshot is None:
                 if current_position is not None and strategy_config.exits.asset_data_unavailable_exit_enabled:
                     result = _v2_exit_result_from_blocked(
@@ -283,6 +293,50 @@ async def compute_crypto_signals(
     if owns_provider and hasattr(provider, "aclose"):
         await provider.aclose()
     return count
+
+
+async def _cached_asset_snapshot(
+    *,
+    market_data: CryptoMarketDataService,
+    asset_cache: dict[str, AssetSnapshotCacheEntry],
+    asset: str,
+    cache_seconds: int,
+    spot_seconds: int,
+) -> Any:
+    now = utcnow()
+    entry = asset_cache.get(asset)
+    if entry is None or _asset_cache_entry_expired(
+        entry,
+        now=now,
+        cache_seconds=cache_seconds,
+        spot_seconds=spot_seconds,
+    ):
+        asset_cache[asset] = AssetSnapshotCacheEntry(
+            snapshot=await market_data.get_asset_snapshot(asset),
+            fetched_at=utcnow(),
+        )
+    return asset_cache[asset].snapshot
+
+
+def _asset_cache_entry_expired(
+    entry: AssetSnapshotCacheEntry,
+    *,
+    now: datetime,
+    cache_seconds: int,
+    spot_seconds: int,
+) -> bool:
+    if _seconds_since(entry.fetched_at, now) > max(cache_seconds, 0):
+        return True
+    snapshot_ts = getattr(entry.snapshot, "ts", None)
+    if snapshot_ts is not None and _seconds_since(snapshot_ts, now) > max(spot_seconds, 0):
+        return True
+    return False
+
+
+def _seconds_since(value: datetime, now: datetime) -> float:
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=now.tzinfo)
+    return max((now - value).total_seconds(), 0.0)
 
 
 async def prewarm_crypto_semantic_parse_caches(session: AsyncSession) -> int:

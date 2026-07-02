@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from sqlalchemy import select
@@ -47,6 +48,28 @@ class FakeHighEdgeAssetMarketDataProvider:
         self.calls.append(asset)
         return {
             "asset": asset,
+            "current_price": self.current_price,
+            "annualized_volatility": self.annualized_volatility,
+            "realized_vol_7d": self.annualized_volatility,
+            "realized_vol_30d": self.annualized_volatility,
+            "realized_vol_90d": self.annualized_volatility,
+            "momentum_24h": Decimal("0"),
+            "source": "test",
+        }
+
+
+@dataclass
+class ClockedHighEdgeAssetMarketDataProvider:
+    calls: list[str]
+    now: Any
+    current_price: Decimal = Decimal("70000")
+    annualized_volatility: Decimal = Decimal("0.35")
+
+    async def asset_market_data(self, asset: str):
+        self.calls.append(asset)
+        return {
+            "asset": asset,
+            "ts": self.now(),
             "current_price": self.current_price,
             "annualized_volatility": self.annualized_volatility,
             "realized_vol_7d": self.annualized_volatility,
@@ -114,6 +137,15 @@ class FakeClobPredictionOrderBookService:
             source="polymarket_clob",
             raw_json={"source": "test"},
         )
+
+
+class ClockedClobPredictionOrderBookService(FakeClobPredictionOrderBookService):
+    def __init__(self, now: Any) -> None:
+        self.now = now
+
+    async def get_orderbook(self, market, snapshot, outcome: str) -> PredictionOrderBookSnapshot:
+        orderbook = await super().get_orderbook(market, snapshot, outcome)
+        return replace(orderbook, ts=self.now())
 
 
 @pytest.mark.asyncio
@@ -218,6 +250,91 @@ async def test_compute_crypto_signals_v2_auto_fills_buy_order(tmp_path, monkeypa
         assert listed["items"][0]["edge_stress"] is not None
         assert listed["items"][0]["raw_signal_json"]["strategy_code"] == "crypto_threshold_v2"
     finally:
+        await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_compute_crypto_signals_refreshes_asset_snapshot_when_cache_expires(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    config_path = tmp_path / "app.yaml"
+    config_path.write_text(
+        """
+strategies:
+  crypto_threshold_v2:
+    enabled: true
+    data_freshness:
+      spot_seconds: 30
+      orderbook_seconds: 15
+      asset_snapshot_cache_seconds: 20
+    paper_execution:
+      auto_execute_signals: false
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_CONFIG_PATH", str(config_path))
+
+    from app.core.config import get_settings
+    from app.services import signals as signals_module
+    from app.strategies.crypto_v2 import strategy as strategy_module
+
+    get_settings.cache_clear()
+    start = datetime(2026, 7, 1, tzinfo=UTC)
+    clock = {"now": start}
+    monkeypatch.setattr(signals_module, "utcnow", lambda: clock["now"])
+    monkeypatch.setattr(strategy_module, "utcnow", lambda: clock["now"])
+    monkeypatch.setattr(
+        signals_module,
+        "PredictionOrderBookService",
+        lambda: ClockedClobPredictionOrderBookService(lambda: clock["now"]),
+    )
+    original_signal_from_result = signals_module._model_signal_from_result
+    signal_count = 0
+
+    def advance_after_first_signal(result):
+        nonlocal signal_count
+        model_signal = original_signal_from_result(result)
+        signal_count += 1
+        if signal_count == 1:
+            clock["now"] = start + timedelta(seconds=60)
+        return model_signal
+
+    monkeypatch.setattr(signals_module, "_model_signal_from_result", advance_after_first_signal)
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-asset-cache-refresh.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with sessionmaker() as session:
+            venue = Venue(code="POLYMARKET", name="Polymarket")
+            session.add(venue)
+            await session.flush()
+            await _btc_market_with_snapshot(
+                session,
+                venue,
+                "btc-60000",
+                "Will the price of Bitcoin be above $60,000 on July 10, 2026?",
+            )
+            await _btc_market_with_snapshot(
+                session,
+                venue,
+                "btc-62000",
+                "Will the price of Bitcoin be above $62,000 on July 10, 2026?",
+            )
+            await session.commit()
+
+            provider = ClockedHighEdgeAssetMarketDataProvider(calls=[], now=lambda: clock["now"])
+            count = await compute_crypto_signals(session, asset_market_data_provider=provider)
+            await session.commit()
+
+            signals = (await session.execute(select(ModelSignal))).scalars().all()
+
+        assert count == 2
+        assert provider.calls == ["BTC", "BTC"]
+        assert len(signals) == 2
+        assert all("SPOT_DATA_STALE" not in signal.risk_flags for signal in signals)
+    finally:
+        get_settings.cache_clear()
         await sessionmaker.bind.dispose()
 
 

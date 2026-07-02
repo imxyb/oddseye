@@ -5,6 +5,7 @@ from typing import Any
 
 import httpx
 
+from app.core.time import utcnow
 from app.db.models import MarketSnapshot, PredictionMarket
 from app.normalizer.prediction_market import coerce_token_ids
 from app.strategies.crypto_v2.spec import PredictionOrderBookSnapshot
@@ -140,7 +141,7 @@ def _snapshot_from_clob_book(
         market_id=market.id,
         token_id=token_id,
         outcome=outcome,  # type: ignore[arg-type]
-        ts=snapshot.ts,
+        ts=utcnow(),
         best_bid=best_bid,
         best_ask=best_ask,
         spread=spread,

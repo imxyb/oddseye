@@ -51,14 +51,17 @@ async def test_orderbook_service_prefers_direct_clob_when_token_id_is_available(
         },
     )
 
+    before = datetime.now(UTC)
     orderbook = await PredictionOrderBookService(clob_client=FakeClobClient()).get_orderbook(
         market,
         snapshot,
         "YES",
     )
+    after = datetime.now(UTC)
 
     assert orderbook.source == "polymarket_clob"
     assert orderbook.token_id == "yes-token"
+    assert before <= orderbook.ts <= after
     assert orderbook.best_bid == Decimal("0.41")
     assert orderbook.best_ask == Decimal("0.43")
     assert orderbook.spread == Decimal("0.02")
