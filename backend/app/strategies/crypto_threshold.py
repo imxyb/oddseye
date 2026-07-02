@@ -125,10 +125,13 @@ class CryptoThresholdStrategy:
             annualized_volatility=context.annualized_volatility,
         )
         p_model = Decimal("1") - p_above if parsed.condition_type == "close_below" else p_above
-        yes_edge = p_model - context.yes_ask if context.yes_ask is not None else None
-        no_edge = (Decimal("1") - p_model) - context.no_ask if context.no_ask is not None else None
+        quote_risk_flags = _quote_risk_flags(context.yes_ask, context.no_ask)
+        yes_ask = _tradable_price(context.yes_ask)
+        no_ask = _tradable_price(context.no_ask)
+        yes_edge = p_model - yes_ask if yes_ask is not None else None
+        no_edge = (Decimal("1") - p_model) - no_ask if no_ask is not None else None
         if risk_flags:
-            return self._observe(context, confidence, reason_codes, risk_flags, p_model=p_model)
+            return self._observe(context, confidence, reason_codes, risk_flags + quote_risk_flags, p_model=p_model)
         if yes_edge is not None and yes_edge >= self.min_edge:
             reason_codes.extend(["MODEL_EDGE_POSITIVE", "BUY_YES_EDGE"])
             return StrategySignal(
@@ -137,7 +140,7 @@ class CryptoThresholdStrategy:
                 action="BUY",
                 side="YES",
                 model_probability=p_model,
-                executable_price=context.yes_ask,
+                executable_price=yes_ask,
                 edge=yes_edge.quantize(Decimal("0.000001")),
                 confidence=confidence,
                 suggested_notional=Decimal("100"),
@@ -155,7 +158,7 @@ class CryptoThresholdStrategy:
                 action="BUY",
                 side="NO",
                 model_probability=p_model,
-                executable_price=context.no_ask,
+                executable_price=no_ask,
                 edge=no_edge.quantize(Decimal("0.000001")),
                 confidence=confidence,
                 suggested_notional=Decimal("100"),
@@ -166,7 +169,7 @@ class CryptoThresholdStrategy:
                 snapshot_id=context.snapshot_id,
             )
         reason_codes.append("EDGE_BELOW_THRESHOLD")
-        return self._observe(context, confidence, reason_codes, risk_flags, p_model=p_model)
+        return self._observe(context, confidence, reason_codes, risk_flags + quote_risk_flags, p_model=p_model)
 
     def _observe(
         self,
@@ -192,3 +195,20 @@ class CryptoThresholdStrategy:
             expires_at=context.now + SIGNAL_TTL,
             snapshot_id=context.snapshot_id,
         )
+
+
+def _tradable_price(value: Decimal | None) -> Decimal | None:
+    if value is None:
+        return None
+    if Decimal("0") < value < Decimal("1"):
+        return value
+    return None
+
+
+def _quote_risk_flags(yes_ask: Decimal | None, no_ask: Decimal | None) -> list[str]:
+    risk_flags = []
+    if yes_ask is not None and _tradable_price(yes_ask) is None:
+        risk_flags.append("YES_ASK_OUT_OF_RANGE")
+    if no_ask is not None and _tradable_price(no_ask) is None:
+        risk_flags.append("NO_ASK_OUT_OF_RANGE")
+    return risk_flags

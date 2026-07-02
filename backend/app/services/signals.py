@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.time import utcnow
@@ -46,6 +46,7 @@ async def list_signals(
         .join(PredictionMarket, ModelSignal.market_id == PredictionMarket.id)
         .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
         .where(or_(ModelSignal.expires_at.is_(None), ModelSignal.expires_at > now))
+        .where(not_(_invalid_buy_signal_clause()))
         .order_by(ModelSignal.ts.desc())
     )
     if action:
@@ -76,7 +77,7 @@ async def create_order_from_signal(
         raise ValueError("signal not found")
     if signal.expires_at is not None and _aware(signal.expires_at) <= utcnow():
         raise ValueError("signal expired")
-    if signal.action != "BUY" or signal.side not in {"YES", "NO"}:
+    if not _is_orderable_buy_signal(signal):
         raise ValueError("signal is not orderable")
     outcome_index = 0 if signal.side == "YES" else 1
     quantity = notional / limit_price
@@ -92,6 +93,29 @@ async def create_order_from_signal(
             quantity=quantity,
             enforce_auto_gates=True,
         ),
+    )
+
+
+def _invalid_buy_signal_clause():
+    return and_(
+        ModelSignal.action == "BUY",
+        or_(
+            ModelSignal.side.is_(None),
+            ModelSignal.side.notin_(["YES", "NO"]),
+            ModelSignal.executable_price.is_(None),
+            ModelSignal.executable_price <= Decimal("0"),
+            ModelSignal.executable_price >= Decimal("1"),
+        ),
+    )
+
+
+def _is_orderable_buy_signal(signal: ModelSignal) -> bool:
+    executable_price = signal.executable_price
+    return (
+        signal.action == "BUY"
+        and signal.side in {"YES", "NO"}
+        and executable_price is not None
+        and Decimal("0") < executable_price < Decimal("1")
     )
 
 

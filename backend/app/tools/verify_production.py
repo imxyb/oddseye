@@ -768,7 +768,10 @@ def _require_paper_sell_fill(
 
 
 def _buy_limit_for_fill(reference_price: Decimal) -> Decimal:
-    return min((reference_price * Decimal("1.01")).quantize(Decimal("0.000001")), Decimal("0.999999"))
+    return min(
+        max((reference_price * Decimal("1.01")).quantize(Decimal("0.000001")), Decimal("0.000001")),
+        Decimal("0.999999"),
+    )
 
 
 def _sell_limit_for_fill(reference_price: Decimal) -> Decimal:
@@ -789,10 +792,22 @@ def _first_orderable_buy_signal(payload: dict[str, Any]) -> dict[str, Any]:
             and signal_id
             and action == "BUY"
             and side in {"YES", "NO"}
-            and item.get("executable_price") is not None
+            and _tradable_payload_price(item.get("executable_price")) is not None
         ):
             return item
     raise ProductionVerificationError("paper_signal_order: no orderable BUY signal returned")
+
+
+def _tradable_payload_price(value: Any) -> Decimal | None:
+    if value is None:
+        return None
+    try:
+        price = Decimal(str(value))
+    except (InvalidOperation, ValueError):
+        return None
+    if Decimal("0") < price < Decimal("1"):
+        return price
+    return None
 
 
 def _require_signal_action(payload: dict[str, Any], action: str, *, name: str) -> dict[str, Any]:

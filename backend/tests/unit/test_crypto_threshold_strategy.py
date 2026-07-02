@@ -117,3 +117,28 @@ def test_strategy_observes_touch_markets_until_barrier_model_exists() -> None:
     assert signal.side is None
     assert "CRYPTO_THRESHOLD_TOUCH_MARKET_DETECTED" in signal.reason_codes
     assert "BARRIER_TOUCH_MODEL_NOT_IMPLEMENTED" in signal.risk_flags
+
+
+def test_strategy_observes_when_edge_quote_is_not_tradable() -> None:
+    strategy = CryptoThresholdStrategy(min_edge=Decimal("0.07"))
+
+    signal = strategy.evaluate(
+        CryptoMarketContext(
+            market_id="market-4",
+            question="Will ETH be above $3000 on July 31, 2026?",
+            now=datetime(2026, 7, 1, tzinfo=timezone.utc),
+            deadline=datetime(2026, 7, 31, tzinfo=timezone.utc),
+            current_price=Decimal("3500"),
+            annualized_volatility=Decimal("0.35"),
+            yes_ask=Decimal("0"),
+            no_ask=Decimal("0.99"),
+            market_quality_score=Decimal("80"),
+            parser_confidence=Decimal("0.86"),
+            snapshot_id=4,
+        )
+    )
+
+    assert signal.action == "OBSERVE"
+    assert signal.side is None
+    assert signal.executable_price is None
+    assert "YES_ASK_OUT_OF_RANGE" in signal.risk_flags

@@ -216,6 +216,16 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
         ("GET", "/signals?action=BUY&limit=5"): {
             "items": [
                 {
+                    "signal_id": "signal-zero-price",
+                    "market_id": "market-1",
+                    "strategy_code": "crypto_threshold_v1",
+                    "question": "Will BTC be above $80,000 on July 31, 2026?",
+                    "category": "crypto",
+                    "action": "BUY",
+                    "side": "YES",
+                    "executable_price": 0,
+                },
+                {
                     "signal_id": "signal-buy",
                     "market_id": "market-1",
                     "strategy_code": "crypto_threshold_v1",
