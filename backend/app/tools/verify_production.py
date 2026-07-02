@@ -337,6 +337,61 @@ def verify_production(
         )
     )
 
+    signal_order_payload = signal_order.get("order")
+    _require(isinstance(signal_order_payload, dict), "paper_signal_sell_order", "missing signal order")
+    signal_market_id = signal_order_payload.get("market_id")
+    _require(
+        isinstance(signal_market_id, str) and signal_market_id,
+        "paper_signal_sell_order",
+        "signal order missing market_id",
+    )
+    signal_outcome_index = signal_order_payload.get("outcome_index")
+    _require(
+        isinstance(signal_outcome_index, int) and not isinstance(signal_outcome_index, bool),
+        "paper_signal_sell_order",
+        "signal order missing outcome_index",
+    )
+    signal_quantity = _decimal_payload_value(
+        signal_order_payload.get("quantity"),
+        "paper_signal_sell_order",
+        "signal order quantity",
+    )
+    signal_detail = production_client.request(
+        "GET",
+        f"/markets/{quote(signal_market_id, safe='')}",
+        token=token,
+    )
+    signal_bid, _signal_ask = _tradable_quote_for_outcome(
+        signal_detail,
+        signal_outcome_index,
+        name="paper_signal_sell_order",
+    )
+    signal_sell_order = production_client.request(
+        "POST",
+        "/paper/orders",
+        token=token,
+        json_body={
+            "market_id": signal_market_id,
+            "side": "SELL",
+            "outcome_index": signal_outcome_index,
+            "limit_price": str(signal_bid),
+            "quantity": str(signal_quantity),
+        },
+    )
+    _require_paper_sell_fill(
+        signal_sell_order,
+        name="paper_signal_sell_order",
+        reference_price=signal_bid,
+        expected_signal_id=None,
+    )
+    checks.append(
+        VerificationCheck(
+            "paper_signal_sell_order",
+            True,
+            "signal-created paper position closed at or below displayed bid",
+        )
+    )
+
     usage = production_client.request("GET", "/settings/usage", token=token)
     _require_usage_summary(usage)
     checks.append(VerificationCheck("usage", True, "usage counters and job cadence returned"))
@@ -515,6 +570,20 @@ def _first_tradable_quote(payload: dict[str, Any]) -> tuple[int, Decimal, Decima
         ask = _decimal_payload_value(outcome.get("ask"), "paper_manual_order", "outcome ask")
         return index, bid, ask
     raise ProductionVerificationError("paper_manual_order: no tradable bid/ask quote available")
+
+
+def _tradable_quote_for_outcome(payload: dict[str, Any], outcome_index: int, *, name: str) -> tuple[Decimal, Decimal]:
+    outcomes = payload.get("outcomes")
+    _require(isinstance(outcomes, list), name, "missing outcomes")
+    for outcome in outcomes:
+        if not isinstance(outcome, dict) or outcome.get("index") != outcome_index:
+            continue
+        _require(outcome.get("bid") is not None, name, f"outcome {outcome_index} missing bid")
+        _require(outcome.get("ask") is not None, name, f"outcome {outcome_index} missing ask")
+        bid = _decimal_payload_value(outcome.get("bid"), name, f"outcome {outcome_index} bid")
+        ask = _decimal_payload_value(outcome.get("ask"), name, f"outcome {outcome_index} ask")
+        return bid, ask
+    raise ProductionVerificationError(f"{name}: no quote for outcome {outcome_index}")
 
 
 def _require_quality_explanation(payload: dict[str, Any]) -> None:
