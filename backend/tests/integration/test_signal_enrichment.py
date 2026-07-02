@@ -303,7 +303,111 @@ strategies:
         assert order_by_signal[high_signal.id].status == "filled"
         assert low_signal.raw_json["auto_order"] == {
             "status": "skipped",
-            "reason": "asset_horizon_position_limit_reached",
+            "reason": "asset_window_cycle_buy_already_selected",
+        }
+    finally:
+        get_settings.cache_clear()
+        await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_auto_execution_allows_one_new_buy_per_asset_window_even_when_two_slots_allowed(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "app.yaml"
+    config_path.write_text(
+        """
+strategies:
+  crypto_threshold_v2:
+    paper_execution:
+      auto_execute_signals: true
+      max_asset_horizon_positions: 2
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_CONFIG_PATH", str(config_path))
+
+    from app.core.config import get_settings
+    from app.services.signals import AutoExecutionCandidate, _auto_execute_v2_signals
+
+    get_settings.cache_clear()
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-one-window-buy.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with sessionmaker() as session:
+            venue = Venue(code="POLYMARKET", name="Polymarket")
+            account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("10000"))
+            session.add_all([venue, account])
+            await session.flush()
+            above_market = await _btc_market_with_snapshot(
+                session,
+                venue,
+                "btc-hit-above",
+                "Will Bitcoin reach $66,000 on July 10, 2026?",
+            )
+            below_market = await _btc_market_with_snapshot(
+                session,
+                venue,
+                "btc-hit-below",
+                "Will Bitcoin dip to $56,000 on July 10, 2026?",
+            )
+            window_end = "2026-07-10T00:00:00+00:00"
+            above_signal = ModelSignal(
+                market_id=above_market.id,
+                ts=datetime.now(UTC),
+                strategy_code="crypto_threshold_v2",
+                action="BUY",
+                side="YES",
+                model_probability=Decimal("0.70"),
+                executable_price=Decimal("0.05"),
+                edge=Decimal("0.20"),
+                confidence=Decimal("0.90"),
+                suggested_notional=Decimal("10"),
+                market_quality_score=Decimal("80"),
+                reason_codes=["EXECUTION_GATE_PASSED"],
+                risk_flags=[],
+                raw_json={"market_spec": {"asset": "BTC", "window_end": window_end}},
+            )
+            below_signal = ModelSignal(
+                market_id=below_market.id,
+                ts=datetime.now(UTC),
+                strategy_code="crypto_threshold_v2",
+                action="BUY",
+                side="YES",
+                model_probability=Decimal("0.65"),
+                executable_price=Decimal("0.05"),
+                edge=Decimal("0.15"),
+                confidence=Decimal("0.90"),
+                suggested_notional=Decimal("10"),
+                market_quality_score=Decimal("80"),
+                reason_codes=["EXECUTION_GATE_PASSED"],
+                risk_flags=[],
+                raw_json={"market_spec": {"asset": "BTC", "window_end": window_end}},
+            )
+            session.add_all([above_signal, below_signal])
+            await session.flush()
+
+            await _auto_execute_v2_signals(
+                session,
+                account=account,
+                candidates=[
+                    AutoExecutionCandidate(model_signal=below_signal, current_position=None),
+                    AutoExecutionCandidate(model_signal=above_signal, current_position=None),
+                ],
+            )
+            await session.commit()
+
+            orders = (
+                await session.execute(select(PaperOrder).order_by(PaperOrder.created_at.asc(), PaperOrder.id.asc()))
+            ).scalars().all()
+
+        assert [order.signal_id for order in orders] == [above_signal.id]
+        assert orders[0].status in {"filled", "open"}
+        assert below_signal.raw_json["auto_order"] == {
+            "status": "skipped",
+            "reason": "asset_window_cycle_buy_already_selected",
         }
     finally:
         get_settings.cache_clear()

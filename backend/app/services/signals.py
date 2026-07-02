@@ -507,9 +507,63 @@ async def _asset_horizon_portfolio_state(
     return current_exposure, position_count
 
 
+async def _asset_window_open_position_count(
+    session: AsyncSession,
+    *,
+    account_id: str,
+    spec: CryptoMarketSpec,
+    parser: CryptoMarketSpecParserV2,
+) -> int:
+    rows = await session.execute(
+        select(PaperPosition, PredictionMarket, PredictionEvent)
+        .join(PredictionMarket, PaperPosition.market_id == PredictionMarket.id)
+        .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
+        .where(
+            PaperPosition.account_id == account_id,
+            PaperPosition.status == "open",
+            PaperPosition.quantity > 0,
+        )
+    )
+    count = 0
+    for _position, market, event in rows.all():
+        parsed = parser.parse(market, event)
+        if parsed.failed or parsed.spec is None:
+            continue
+        if _asset_window_key(parsed.spec) == _asset_window_key(spec):
+            count += 1
+    return count
+
+
 def _horizon_bucket(value: datetime) -> str:
     iso = value.date().isocalendar()
     return f"{iso.year}-W{iso.week:02d}"
+
+
+def _asset_window_key(spec: CryptoMarketSpec) -> tuple[str, str]:
+    return spec.asset.upper(), spec.window_end.isoformat()
+
+
+async def _auto_buy_asset_window_key(
+    session: AsyncSession,
+    *,
+    model_signal: ModelSignal,
+) -> tuple[str, str] | None:
+    raw_spec = (model_signal.raw_json or {}).get("market_spec") or {}
+    raw_asset = raw_spec.get("asset")
+    raw_window_end = raw_spec.get("window_end")
+    if raw_asset and raw_window_end:
+        return str(raw_asset).upper(), str(raw_window_end)
+
+    market = await session.get(PredictionMarket, model_signal.market_id)
+    if market is None:
+        return None
+    event = await session.get(PredictionEvent, market.event_id)
+    if event is None:
+        return None
+    parsed = CryptoMarketSpecParserV2().parse(market, event)
+    if parsed.failed or parsed.spec is None:
+        return None
+    return _asset_window_key(parsed.spec)
 
 
 async def _auto_execute_v2_signal(
@@ -518,20 +572,20 @@ async def _auto_execute_v2_signal(
     account: PaperAccount,
     model_signal: ModelSignal,
     current_position: PositionState | None,
-) -> None:
+) -> bool:
     strategy_config = get_settings().config.strategies.crypto_threshold_v2
     if model_signal.strategy_code != STRATEGY_CODE:
-        return
+        return False
     if (
         not strategy_config.enabled
         or strategy_config.mode == "observe_only"
         or not strategy_config.paper_execution.auto_execute_signals
     ):
-        return
+        return False
     if model_signal.action not in {"BUY", "EXIT", "REDUCE"}:
-        return
+        return False
     if model_signal.side not in {"YES", "NO"} or model_signal.executable_price is None:
-        return
+        return False
     side = "BUY" if model_signal.action == "BUY" else "SELL"
     outcome_index = 0 if model_signal.side == "YES" else 1
     limit_price = _auto_limit_price(model_signal.executable_price, side)
@@ -543,7 +597,7 @@ async def _auto_execute_v2_signal(
     )
     if quantity <= 0:
         _merge_signal_raw_json(model_signal, {"auto_order": {"status": "skipped", "reason": "no_quantity"}})
-        return
+        return False
     if side == "BUY":
         skip_reason = await _auto_buy_portfolio_skip_reason(
             session,
@@ -553,7 +607,7 @@ async def _auto_execute_v2_signal(
         )
         if skip_reason is not None:
             _merge_signal_raw_json(model_signal, {"auto_order": {"status": "skipped", "reason": skip_reason}})
-            return
+            return False
     response = await create_paper_order(
         session,
         PaperOrderInput(
@@ -568,6 +622,7 @@ async def _auto_execute_v2_signal(
         ),
     )
     _merge_signal_raw_json(model_signal, {"auto_order": response})
+    return response.get("order", {}).get("status") in {"filled", "open"}
 
 
 async def _auto_buy_portfolio_skip_reason(
@@ -596,6 +651,14 @@ async def _auto_buy_portfolio_skip_reason(
         spec=parsed.spec,
         parser=parser,
     )
+    if await _asset_window_open_position_count(
+        session,
+        account_id=account.id,
+        spec=parsed.spec,
+        parser=parser,
+    ):
+        return "asset_window_position_already_open"
+
     max_positions = strategy_config.paper_execution.max_asset_horizon_positions
     if max_positions > 0 and position_count >= max_positions:
         return "asset_horizon_position_limit_reached"
@@ -613,13 +676,33 @@ async def _auto_execute_v2_signals(
     account: PaperAccount,
     candidates: list[AutoExecutionCandidate],
 ) -> None:
+    opened_buy_asset_windows: set[tuple[str, str]] = set()
     for candidate in sorted(candidates, key=_auto_execution_sort_key):
-        await _auto_execute_v2_signal(
+        buy_asset_window = None
+        if candidate.model_signal.action == "BUY":
+            buy_asset_window = await _auto_buy_asset_window_key(
+                session,
+                model_signal=candidate.model_signal,
+            )
+            if buy_asset_window is not None and buy_asset_window in opened_buy_asset_windows:
+                _merge_signal_raw_json(
+                    candidate.model_signal,
+                    {
+                        "auto_order": {
+                            "status": "skipped",
+                            "reason": "asset_window_cycle_buy_already_selected",
+                        }
+                    },
+                )
+                continue
+        filled = await _auto_execute_v2_signal(
             session,
             account=account,
             model_signal=candidate.model_signal,
             current_position=candidate.current_position,
         )
+        if filled and buy_asset_window is not None:
+            opened_buy_asset_windows.add(buy_asset_window)
 
 
 def _auto_execution_sort_key(candidate: AutoExecutionCandidate) -> tuple[int, Decimal, Decimal, Decimal, str]:
