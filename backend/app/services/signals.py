@@ -5,7 +5,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import and_, not_, or_, select
+from sqlalchemy import and_, func, not_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import get_settings
@@ -49,18 +49,39 @@ async def list_signals(
     limit: int = 50,
 ) -> dict[str, Any]:
     now = utcnow()
+    action_upper = action.upper() if action else None
+    filters = [
+        or_(ModelSignal.expires_at.is_(None), ModelSignal.expires_at > now),
+        not_(_invalid_buy_signal_clause()),
+    ]
+    if action_upper:
+        filters.append(ModelSignal.action == action_upper)
+    if min_edge is not None:
+        filters.extend([ModelSignal.edge.is_not(None), ModelSignal.edge >= min_edge])
     query = (
         select(ModelSignal, PredictionMarket, PredictionEvent)
         .join(PredictionMarket, ModelSignal.market_id == PredictionMarket.id)
         .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
-        .where(or_(ModelSignal.expires_at.is_(None), ModelSignal.expires_at > now))
-        .where(not_(_invalid_buy_signal_clause()))
+        .where(*filters)
         .order_by(ModelSignal.ts.desc())
     )
-    if action:
-        query = query.where(ModelSignal.action == action.upper())
-    if min_edge is not None:
-        query = query.where(ModelSignal.edge.is_not(None), ModelSignal.edge >= min_edge)
+    if action_upper == "HOLD":
+        ranked_signals = (
+            select(
+                ModelSignal.id.label("signal_id"),
+                func.row_number()
+                .over(
+                    partition_by=(ModelSignal.market_id, ModelSignal.side),
+                    order_by=(ModelSignal.ts.desc(), ModelSignal.id.desc()),
+                )
+                .label("signal_rank"),
+            )
+            .where(*filters)
+            .subquery()
+        )
+        query = query.join(ranked_signals, ModelSignal.id == ranked_signals.c.signal_id).where(
+            ranked_signals.c.signal_rank == 1
+        )
     query = query.limit(limit if category is None else max(limit * 10, 200))
     rows = await session.execute(query)
     items = []
