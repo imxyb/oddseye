@@ -97,6 +97,7 @@ class CryptoThresholdV2ParserSection(BaseModel):
     semantic_provider: Literal["regex", "deepseek"] = "regex"
     semantic_min_confidence: float = 0.90
     semantic_prewarm_concurrency: int = 24
+    semantic_live_parse_enabled: bool = False
 
 
 class CryptoThresholdV2MarketFiltersSection(BaseModel):

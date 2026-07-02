@@ -69,6 +69,7 @@ class CryptoMarketSpecParserV2:
             event,
             settings=settings,
             provider_name=parser_config.semantic_provider,
+            live_parse_enabled=parser_config.semantic_live_parse_enabled,
         )
         if semantic is not None:
             raw_parse["semantic_parse"] = semantic
@@ -171,6 +172,7 @@ class CryptoMarketSpecParserV2:
         *,
         settings: Any,
         provider_name: str,
+        live_parse_enabled: bool,
     ) -> tuple[dict[str, Any] | None, str | None]:
         question = str(getattr(market, "question", "") or "")
         resolution_source = getattr(market, "resolution_source", None)
@@ -186,7 +188,7 @@ class CryptoMarketSpecParserV2:
         provider = "test"
         model = "test"
         if parser is None:
-            if provider_name != "deepseek" or not settings.deepseek_api_key:
+            if provider_name != "deepseek" or not settings.deepseek_api_key or not live_parse_enabled:
                 return None, None
             provider = "deepseek"
             model = settings.deepseek_model

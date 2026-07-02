@@ -47,7 +47,7 @@ def test_add_interval_job_can_schedule_first_run_immediately() -> None:
     assert isinstance(calls[0]["kwargs"]["next_run_time"], datetime)
 
 
-def test_signal_worker_schedules_compute_signals_immediately(monkeypatch) -> None:
+def test_signal_worker_schedules_semantic_prewarm_before_compute_signals(monkeypatch) -> None:
     calls: list[dict] = []
 
     class RecordingScheduler:
@@ -71,5 +71,7 @@ def test_signal_worker_schedules_compute_signals_immediately(monkeypatch) -> Non
 
     signal_worker.main()
 
-    assert calls[0]["name"] == "compute_signals"
+    assert calls[0]["name"] == "prewarm_crypto_semantic_parse"
     assert calls[0]["kwargs"]["run_immediately"] is True
+    assert calls[1]["name"] == "compute_signals"
+    assert calls[1]["kwargs"]["run_immediately"] is False

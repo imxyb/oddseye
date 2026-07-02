@@ -87,6 +87,7 @@ strategies:
       semantic_provider: regex
       semantic_min_confidence: 0.90
       semantic_prewarm_concurrency: 24
+      semantic_live_parse_enabled: false
     market_filters:
       min_quality_score: 70
       touch_min_quality_score: 75

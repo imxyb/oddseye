@@ -200,7 +200,6 @@ async def compute_crypto_signals(
         .order_by(MarketSnapshot.ts.desc())
     )
     market_rows = rows.all()
-    await _prewarm_crypto_semantic_caches(market_rows)
     seen: set[str] = set()
     auto_candidates: list[AutoExecutionCandidate] = []
     count = 0
@@ -284,6 +283,16 @@ async def compute_crypto_signals(
     if owns_provider and hasattr(provider, "aclose"):
         await provider.aclose()
     return count
+
+
+async def prewarm_crypto_semantic_parse_caches(session: AsyncSession) -> int:
+    rows = await session.execute(
+        select(PredictionMarket, PredictionEvent, MarketSnapshot)
+        .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
+        .join(MarketSnapshot, MarketSnapshot.market_id == PredictionMarket.id)
+        .order_by(MarketSnapshot.ts.desc())
+    )
+    return await _prewarm_crypto_semantic_caches(rows.all())
 
 
 async def _prewarm_crypto_semantic_caches(
