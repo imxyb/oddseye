@@ -140,6 +140,94 @@ async def test_radar_uses_latest_unexpired_signal(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_radar_watchlist_category_uses_configured_event_market_and_keywords(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'watchlist-radar.db'}")
+    watchlist_path = tmp_path / "watchlist.yaml"
+    watchlist_path.write_text(
+        """
+watchlist:
+  event_ids:
+    - watched-event
+  market_ids:
+    - watched-market
+  keywords:
+    - FOMC
+""",
+        encoding="utf-8",
+    )
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        session.add(venue)
+        await session.flush()
+
+        watched_event = await _market_with_snapshot(
+            session,
+            venue,
+            external_event_id="watched-event",
+            external_market_id="other-market",
+            question="Will BTC be above $80,000?",
+            closes_at=datetime.now(UTC) + timedelta(days=10),
+            liquidity_usd=Decimal("2000"),
+            volume_usd_24h=Decimal("1000"),
+            market_quality_score=Decimal("90"),
+            edge=Decimal("0.02"),
+        )
+        watched_market = await _market_with_snapshot(
+            session,
+            venue,
+            external_event_id="other-event",
+            external_market_id="watched-market",
+            question="Will ETH be above $3,000?",
+            closes_at=datetime.now(UTC) + timedelta(days=20),
+            liquidity_usd=Decimal("3000"),
+            volume_usd_24h=Decimal("9000"),
+            market_quality_score=Decimal("70"),
+            edge=Decimal("0.05"),
+        )
+        watched_keyword = await _market_with_snapshot(
+            session,
+            venue,
+            external_event_id="keyword-event",
+            external_market_id="keyword-market",
+            question="Will FOMC cut rates?",
+            closes_at=datetime.now(UTC) + timedelta(days=30),
+            liquidity_usd=Decimal("12000"),
+            volume_usd_24h=Decimal("2000"),
+            market_quality_score=Decimal("60"),
+            edge=Decimal("0.25"),
+        )
+        await _market_with_snapshot(
+            session,
+            venue,
+            external_event_id="unwatched-event",
+            external_market_id="unwatched-market",
+            question="Will unemployment rise?",
+            closes_at=datetime.now(UTC) + timedelta(days=30),
+            liquidity_usd=Decimal("12000"),
+            volume_usd_24h=Decimal("2000"),
+            market_quality_score=Decimal("60"),
+            edge=Decimal("0.25"),
+        )
+        await session.commit()
+
+        response = await radar_markets(
+            session,
+            category="watchlist",
+            watchlist_path=watchlist_path,
+            sort="quality",
+        )
+
+        assert {item["market_id"] for item in response["items"]} == {
+            watched_event.id,
+            watched_market.id,
+            watched_keyword.id,
+        }
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
 async def test_radar_supports_documented_sort_dimensions(tmp_path) -> None:
     sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'radar-sorts.db'}")
     async with sessionmaker.bind.begin() as conn:

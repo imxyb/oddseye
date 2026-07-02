@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal
+from pathlib import Path
 from typing import Any
 
 from sqlalchemy import or_, select
@@ -20,6 +21,7 @@ from app.db.models import (
     Venue,
 )
 from app.services.usage import usage_hint_from_summary, usage_summary
+from app.services.watchlist import default_watchlist_path, load_watchlist, market_matches_watchlist
 
 CATEGORY_ALIASES = {
     "economics": {
@@ -93,7 +95,14 @@ async def radar_markets(
     closes_within_hours: float | None = None,
     limit: int = 50,
     offset: int = 0,
+    watchlist_path: str | Path | None = None,
 ) -> dict[str, Any]:
+    is_watchlist = category is not None and category.lower() == "watchlist"
+    watchlist = (
+        load_watchlist(watchlist_path or default_watchlist_path())
+        if is_watchlist
+        else {"event_ids": [], "market_ids": [], "keywords": []}
+    )
     rows = await session.execute(
         select(PredictionMarket, PredictionEvent, Venue)
         .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
@@ -102,7 +111,9 @@ async def radar_markets(
     items = []
     newest_snapshot: datetime | None = None
     for market, event, venue in rows.all():
-        if category and not _category_matches(category, event.categories or []):
+        if is_watchlist and not market_matches_watchlist(event, market, watchlist):
+            continue
+        if category and not is_watchlist and not _category_matches(category, event.categories or []):
             continue
         if protocol and market.protocol.upper() != protocol.upper():
             continue

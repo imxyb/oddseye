@@ -14,12 +14,12 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getRadarMarkets, radarKeys } from "../../src/api/radar";
-import type { MarketCategory, Protocol, RadarMarket } from "../../src/api/types";
+import type { Protocol, RadarMarket } from "../../src/api/types";
 import { MarketCard } from "../../src/components/MarketCard";
 import { useFilterStore } from "../../src/stores/filterStore";
 import { colors, spacing } from "../../src/theme";
+import { radarCategories } from "../../src/utils/radarFilters";
 
-const categories: MarketCategory[] = ["crypto", "economics", "finance"];
 const protocols: Array<Protocol | undefined> = [undefined, "POLYMARKET", "KALSHI"];
 const sorts = ["quality", "edge", "volume", "liquidity", "closingSoon"] as const;
 
@@ -140,7 +140,7 @@ export default function RadarScreen() {
             />
 
             <View style={styles.filterGroup}>
-              {categories.map((value) => (
+              {radarCategories.map((value) => (
                 <FilterButton
                   key={value}
                   active={category === value}

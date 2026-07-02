@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from sqlalchemy import or_, select
-import yaml
 
 from app.core.config import get_settings
 from app.core.time import utcnow
@@ -18,6 +16,7 @@ from app.services.ingestion import (
     refresh_categories,
     sync_event_markets,
 )
+from app.services.watchlist import default_watchlist_path, load_watchlist
 from app.workers.common import add_interval_job, run_scheduler
 
 
@@ -40,7 +39,7 @@ async def sync_hot_markets_job() -> None:
         limit=get_settings().config.ingestion_tiers.hot_watchlist_max_markets,
         job_name="sync_hot_markets",
         usage_kind="hot_snapshot",
-        watchlist_path=_default_watchlist_path(),
+        watchlist_path=default_watchlist_path(),
     )
 
 
@@ -139,7 +138,7 @@ async def _append_watchlist_event_ids(
     limit: int,
     watchlist_path: str | Path | None,
 ) -> None:
-    watchlist = _load_watchlist(watchlist_path)
+    watchlist = load_watchlist(watchlist_path)
     if not watchlist:
         return
 
@@ -189,34 +188,6 @@ async def _append_watchlist_event_ids(
             )
             .order_by(PredictionEvent.updated_at.desc())
         )
-
-
-def _load_watchlist(watchlist_path: str | Path | None) -> dict[str, list[str]]:
-    if watchlist_path is None:
-        return {"event_ids": [], "market_ids": [], "keywords": []}
-    path = Path(watchlist_path)
-    if not path.exists():
-        return {"event_ids": [], "market_ids": [], "keywords": []}
-    data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-    raw_watchlist = data.get("watchlist") if isinstance(data, dict) else {}
-    if not isinstance(raw_watchlist, dict):
-        raw_watchlist = {}
-    return {
-        "event_ids": _string_list(raw_watchlist.get("event_ids")),
-        "market_ids": _string_list(raw_watchlist.get("market_ids")),
-        "keywords": _string_list(raw_watchlist.get("keywords")),
-    }
-
-
-def _string_list(value: Any) -> list[str]:
-    if not isinstance(value, list):
-        return []
-    return [str(item).strip() for item in value if str(item).strip()]
-
-
-def _default_watchlist_path() -> Path:
-    return Path(get_settings().app_config_path).with_name("watchlist.yaml")
-
 
 def main() -> None:
     jobs = get_settings().config.jobs
