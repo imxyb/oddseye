@@ -86,6 +86,7 @@ strategies:
       block_on_ambiguity: true
       semantic_provider: regex
       semantic_min_confidence: 0.90
+      semantic_prewarm_concurrency: 24
     market_filters:
       min_quality_score: 70
       touch_min_quality_score: 75

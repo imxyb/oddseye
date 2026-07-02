@@ -96,6 +96,7 @@ class CryptoThresholdV2ParserSection(BaseModel):
     block_on_ambiguity: bool = True
     semantic_provider: Literal["regex", "deepseek"] = "regex"
     semantic_min_confidence: float = 0.90
+    semantic_prewarm_concurrency: int = 24
 
 
 class CryptoThresholdV2MarketFiltersSection(BaseModel):
@@ -229,7 +230,7 @@ class EnvSettings(BaseSettings):
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
     deepseek_model: str = "deepseek-v4-flash"
-    deepseek_timeout_seconds: float = 12.0
+    deepseek_timeout_seconds: float = 8.0
     jwt_secret: str = "change-me-change-me-change-me-change-me"
     jwt_expires_days: int = 7
     log_level: str = "INFO"

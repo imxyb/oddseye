@@ -292,7 +292,7 @@ async def _prewarm_crypto_semantic_caches(
     semantic_parser: SemanticParser | None = None,
     provider: str | None = None,
     model: str | None = None,
-    concurrency: int = 8,
+    concurrency: int | None = None,
 ) -> int:
     settings = get_settings()
     parser_config = settings.config.strategies.crypto_threshold_v2.parser
@@ -309,6 +309,7 @@ async def _prewarm_crypto_semantic_caches(
         model = settings.deepseek_model
     provider = provider or "test"
     model = model or "test"
+    concurrency = concurrency or parser_config.semantic_prewarm_concurrency
     semaphore = asyncio.Semaphore(max(1, concurrency))
     deduped_rows: list[Any] = []
     seen_markets: set[str] = set()
