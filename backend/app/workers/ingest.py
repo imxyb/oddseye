@@ -108,7 +108,11 @@ async def event_ids_for_sync(
         select(PredictionEvent.external_event_id)
         .join(PredictionMarket, PredictionMarket.event_id == PredictionEvent.id)
         .join(PaperPosition, PaperPosition.market_id == PredictionMarket.id)
-        .where(PredictionEvent.status == "OPEN", PaperPosition.status == "open")
+        .where(
+            PredictionEvent.status == "OPEN",
+            PredictionEvent.protocol == "POLYMARKET",
+            PaperPosition.status == "open",
+        )
         .order_by(PaperPosition.updated_at.desc())
     )
     await append(
@@ -117,6 +121,7 @@ async def event_ids_for_sync(
         .join(ModelSignal, ModelSignal.market_id == PredictionMarket.id)
         .where(
             PredictionEvent.status == "OPEN",
+            PredictionEvent.protocol == "POLYMARKET",
             ModelSignal.action == "BUY",
             or_(ModelSignal.expires_at.is_(None), ModelSignal.expires_at > utcnow()),
         )
@@ -126,8 +131,13 @@ async def event_ids_for_sync(
         select(PredictionEvent.external_event_id)
         .join(PredictionMarket, PredictionMarket.event_id == PredictionEvent.id)
         .outerjoin(MarketSnapshot, MarketSnapshot.market_id == PredictionMarket.id)
-        .where(PredictionEvent.status == "OPEN")
+        .where(PredictionEvent.status == "OPEN", PredictionEvent.protocol == "POLYMARKET")
         .order_by(MarketSnapshot.market_quality_score.desc(), PredictionEvent.updated_at.desc())
+    )
+    await append(
+        select(PredictionEvent.external_event_id)
+        .where(PredictionEvent.status == "OPEN", PredictionEvent.protocol == "POLYMARKET")
+        .order_by(PredictionEvent.closes_at.asc().nulls_last(), PredictionEvent.updated_at.desc())
     )
     return event_ids[:limit]
 
@@ -156,6 +166,7 @@ async def _append_watchlist_event_ids(
         await append(
             select(PredictionEvent.external_event_id).where(
                 PredictionEvent.status == "OPEN",
+                PredictionEvent.protocol == "POLYMARKET",
                 PredictionEvent.external_event_id == external_event_id,
             )
         )
@@ -168,6 +179,7 @@ async def _append_watchlist_event_ids(
             .join(PredictionMarket, PredictionMarket.event_id == PredictionEvent.id)
             .where(
                 PredictionEvent.status == "OPEN",
+                PredictionEvent.protocol == "POLYMARKET",
                 PredictionMarket.external_market_id == external_market_id,
             )
         )
@@ -181,6 +193,7 @@ async def _append_watchlist_event_ids(
             .join(PredictionMarket, PredictionMarket.event_id == PredictionEvent.id)
             .where(
                 PredictionEvent.status == "OPEN",
+                PredictionEvent.protocol == "POLYMARKET",
                 or_(
                     PredictionEvent.question.ilike(like),
                     PredictionMarket.question.ilike(like),

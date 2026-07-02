@@ -126,6 +126,69 @@ watchlist:
 
 
 @pytest.mark.asyncio
+async def test_event_ids_for_sync_bootstraps_open_polymarket_events_without_markets(
+    tmp_path,
+) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'fresh-tiers.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        poly = Venue(code="POLYMARKET", name="Polymarket")
+        kalshi = Venue(code="KALSHI", name="Kalshi")
+        session.add_all([poly, kalshi])
+        await session.flush()
+
+        await _event(session, poly.id, "poly-newer", days=3)
+        await _event(session, poly.id, "poly-older", days=9)
+        await _event(session, kalshi.id, "kalshi-event", days=2, protocol="KALSHI")
+        await session.commit()
+
+        event_ids = await event_ids_for_sync(session, limit=2)
+
+        assert event_ids == ["poly-newer", "poly-older"]
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_event_ids_for_sync_ignores_non_polymarket_priority_candidates(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'poly-only-tiers.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        poly = Venue(code="POLYMARKET", name="Polymarket")
+        kalshi = Venue(code="KALSHI", name="Kalshi")
+        account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("9900"))
+        session.add_all([poly, kalshi, account])
+        await session.flush()
+
+        poly_event = await _event(session, poly.id, "poly-event", days=5)
+        kalshi_event = await _event(session, kalshi.id, "kalshi-position", days=1, protocol="KALSHI")
+        kalshi_market = await _market(
+            session,
+            kalshi.id,
+            kalshi_event,
+            protocol="KALSHI",
+        )
+        session.add(
+            PaperPosition(
+                account_id=account.id,
+                market_id=kalshi_market.id,
+                outcome_index=0,
+                quantity=Decimal("10"),
+                avg_price=Decimal("0.50"),
+                mark_price=Decimal("0.50"),
+                status="open",
+            )
+        )
+        await session.commit()
+
+        event_ids = await event_ids_for_sync(session, limit=1)
+
+        assert event_ids == [poly_event.external_event_id]
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
 async def test_sync_markets_records_tier_job_and_usage_kind(tmp_path, monkeypatch) -> None:
     config_path = tmp_path / "app.yaml"
     config_path.write_text(
@@ -249,11 +312,17 @@ watchlist:
         get_settings.cache_clear()
 
 
-async def _event(session, venue_id: str, external_id: str, days: int) -> PredictionEvent:
+async def _event(
+    session,
+    venue_id: str,
+    external_id: str,
+    days: int,
+    protocol: str = "POLYMARKET",
+) -> PredictionEvent:
     event = PredictionEvent(
         venue_id=venue_id,
         external_event_id=external_id,
-        protocol="POLYMARKET",
+        protocol=protocol,
         question=external_id,
         categories=["crypto"],
         status="OPEN",
@@ -269,12 +338,13 @@ async def _market(
     venue_id: str,
     event: PredictionEvent,
     external_market_id: str | None = None,
+    protocol: str = "POLYMARKET",
 ) -> PredictionMarket:
     market = PredictionMarket(
         event_id=event.id,
         venue_id=venue_id,
         external_market_id=external_market_id or f"{event.external_event_id}-market",
-        protocol="POLYMARKET",
+        protocol=protocol,
         question=event.question,
         status="OPEN",
         closes_at=event.closes_at,
