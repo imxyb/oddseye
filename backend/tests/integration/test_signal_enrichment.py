@@ -163,6 +163,78 @@ async def test_compute_crypto_signals_ignores_unparsed_crypto_markets(tmp_path) 
 
 
 @pytest.mark.asyncio
+async def test_compute_signals_creates_observe_only_macro_signals(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'macro-signal.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with sessionmaker() as session:
+            venue = Venue(code="KALSHI", name="Kalshi")
+            session.add(venue)
+            await session.flush()
+            event = PredictionEvent(
+                venue_id=venue.id,
+                external_event_id="fomc-event",
+                protocol="KALSHI",
+                question="Will the Fed cut rates at the next FOMC meeting?",
+                categories=["economy", "rates"],
+                status="OPEN",
+            )
+            session.add(event)
+            await session.flush()
+            market = PredictionMarket(
+                event_id=event.id,
+                venue_id=venue.id,
+                external_market_id="fomc-market",
+                protocol="KALSHI",
+                question=event.question,
+                status="OPEN",
+                closes_at=datetime(2026, 7, 31, tzinfo=UTC),
+                raw_json={"id": "fomc-market", "market": {"id": "fomc-market"}},
+            )
+            session.add(market)
+            await session.flush()
+            session.add(
+                MarketSnapshot(
+                    market_id=market.id,
+                    ts=datetime(2026, 7, 1, tzinfo=UTC),
+                    outcome0_best_bid=Decimal("0.41"),
+                    outcome0_best_ask=Decimal("0.43"),
+                    outcome1_best_bid=Decimal("0.57"),
+                    outcome1_best_ask=Decimal("0.59"),
+                    liquidity_usd=Decimal("15000"),
+                    volume_usd_24h=Decimal("2500"),
+                    market_quality_score=Decimal("72"),
+                )
+            )
+            await session.commit()
+
+            from app.services import signals
+
+            count = await signals.compute_signals(session, asset_market_data_provider=FakeAssetMarketDataProvider(calls=[]))
+            await session.commit()
+
+            signal = await session.scalar(select(ModelSignal))
+            listed = await signals.list_signals(session, category="economics", limit=5)
+
+        assert count == 1
+        assert signal is not None
+        assert signal.strategy_code == "macro_calendar_v1"
+        assert signal.action == "OBSERVE"
+        assert signal.side is None
+        assert signal.model_probability is None
+        assert signal.executable_price is None
+        assert signal.edge is None
+        assert signal.confidence == Decimal("72")
+        assert signal.market_quality_score == Decimal("72")
+        assert signal.raw_json["snapshot_id"] == 1
+        assert listed["total"] == 1
+        assert listed["items"][0]["strategy_code"] == "macro_calendar_v1"
+    finally:
+        await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
 async def test_compute_crypto_signals_holds_existing_same_side_position(tmp_path) -> None:
     sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'signal-hold.db'}")
     async with sessionmaker.bind.begin() as conn:

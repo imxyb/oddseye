@@ -329,6 +329,16 @@ def verify_production(
         )
     )
 
+    macro_signals = production_client.request("GET", "/signals?category=economics&limit=5", token=token)
+    macro_signal = _require_macro_observe_signal(macro_signals)
+    checks.append(
+        VerificationCheck(
+            "macro_observe_signal",
+            True,
+            f"{macro_signal['strategy_code']} OBSERVE signal returned for macro/economics market",
+        )
+    )
+
     buy_signals = production_client.request("GET", "/signals?action=BUY&limit=5", token=token)
     _require_signal_action(buy_signals, "BUY", name="signal_action_BUY")
     checks.append(VerificationCheck("signal_action_BUY", True, "BUY signal action returned"))
@@ -791,6 +801,35 @@ def _require_crypto_threshold_signal(payload: dict[str, Any]) -> dict[str, Any]:
         ):
             return item
     raise ProductionVerificationError("crypto_threshold_signal: no crypto_threshold_v1 signal returned")
+
+
+def _require_macro_observe_signal(payload: dict[str, Any]) -> dict[str, Any]:
+    items = payload.get("items")
+    _require(isinstance(items, list), "macro_observe_signal", "missing macro signal items")
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        question = item.get("question")
+        category = item.get("category")
+        signal_id = item.get("signal_id")
+        market_id = item.get("market_id")
+        if (
+            item.get("strategy_code") == "macro_calendar_v1"
+            and item.get("action") == "OBSERVE"
+            and item.get("side") is None
+            and item.get("model_probability") is None
+            and item.get("executable_price") is None
+            and item.get("edge") is None
+            and category in {"economics", "economy", "macro"}
+            and isinstance(signal_id, str)
+            and signal_id
+            and isinstance(market_id, str)
+            and market_id
+            and isinstance(question, str)
+            and question
+        ):
+            return item
+    raise ProductionVerificationError("macro_observe_signal: no macro_calendar_v1 OBSERVE signal returned")
 
 
 def _looks_like_crypto_threshold_question(question: str) -> bool:

@@ -21,6 +21,7 @@ from app.services.asset_market_data import (
     AssetMarketDataProvider,
     BinanceAssetMarketDataProvider,
 )
+from app.services.market_data import CATEGORY_ALIASES
 from app.services.paper_trading import PaperOrderInput, create_paper_order
 from app.strategies.crypto_threshold import (
     CryptoMarketContext,
@@ -29,6 +30,7 @@ from app.strategies.crypto_threshold import (
     parse_crypto_threshold,
 )
 from app.strategies.base import StrategySignal
+from app.strategies.macro_calendar import macro_v1_observe_only_signal
 
 
 async def list_signals(
@@ -54,7 +56,7 @@ async def list_signals(
     rows = await session.execute(query)
     items = []
     for signal, market, event in rows.all():
-        if category and category.lower() not in [c.lower() for c in event.categories or []]:
+        if category and not _category_matches(event.categories, category):
             continue
         items.append(_signal_item(signal, market, event))
         if len(items) >= limit:
@@ -91,6 +93,15 @@ async def create_order_from_signal(
             enforce_auto_gates=True,
         ),
     )
+
+
+async def compute_signals(
+    session: AsyncSession,
+    asset_market_data_provider: AssetMarketDataProvider | None = None,
+) -> int:
+    count = await compute_crypto_signals(session, asset_market_data_provider=asset_market_data_provider)
+    count += await compute_macro_signals(session)
+    return count
 
 
 async def compute_crypto_signals(
@@ -169,6 +180,56 @@ async def compute_crypto_signals(
         count += 1
     if owns_provider and hasattr(provider, "aclose"):
         await provider.aclose()
+    return count
+
+
+async def compute_macro_signals(session: AsyncSession) -> int:
+    rows = await session.execute(
+        select(PredictionMarket, PredictionEvent, MarketSnapshot)
+        .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
+        .join(MarketSnapshot, MarketSnapshot.market_id == PredictionMarket.id)
+        .order_by(MarketSnapshot.ts.desc())
+    )
+    seen: set[str] = set()
+    count = 0
+    for market, event, snapshot in rows.all():
+        if market.id in seen:
+            continue
+        seen.add(market.id)
+        if not _category_matches(event.categories, "economics"):
+            continue
+        if snapshot.market_quality_score is None:
+            continue
+        signal = await _position_adjusted_signal(
+            session,
+            macro_v1_observe_only_signal(
+                market_id=market.id,
+                quality_score=snapshot.market_quality_score,
+                snapshot_id=snapshot.id,
+                expires_at=utcnow() + SIGNAL_TTL,
+            ),
+            snapshot,
+        )
+        session.add(
+            ModelSignal(
+                market_id=market.id,
+                ts=utcnow(),
+                strategy_code=signal.strategy_code,
+                action=signal.action,
+                side=signal.side,
+                model_probability=signal.model_probability,
+                executable_price=signal.executable_price,
+                edge=signal.edge,
+                confidence=signal.confidence,
+                suggested_notional=signal.suggested_notional,
+                market_quality_score=signal.market_quality_score,
+                reason_codes=signal.reason_codes,
+                risk_flags=signal.risk_flags,
+                expires_at=signal.expires_at,
+                raw_json={"snapshot_id": signal.snapshot_id},
+            )
+        )
+        count += 1
     return count
 
 
@@ -284,6 +345,11 @@ async def _position_adjusted_signal(
             reason_codes=[*signal.reason_codes, "HOLD_EXISTING_POSITION"],
         )
     return signal
+
+
+def _category_matches(categories: list | None, wanted: str) -> bool:
+    aliases = CATEGORY_ALIASES.get(wanted.lower(), {wanted.lower()})
+    return any(str(category).lower() in aliases for category in categories or [])
 
 
 def _side_for_outcome(outcome_index: int) -> str:

@@ -123,9 +123,10 @@ After migrations and service startup, run the production verifier from the built
 API image. It checks health, login, authenticated `/auth/me` identity, Radar live
 data, Crypto and Macro/Economics category data, documented Radar sort
 dimensions, market detail quotes, quality score explanations, chart bars, active
-`crypto_threshold_v1` crypto threshold signals, usage counters, recent ingestion
-job runs, paper performance metrics, strategy/category review rollups, paper
-positions, and paper trade traceability in one repeatable command:
+`crypto_threshold_v1` crypto threshold signals, `macro_calendar_v1`
+Macro/Economics OBSERVE-only signals, usage counters, recent ingestion job runs,
+paper performance metrics, strategy/category review rollups, paper positions,
+and paper trade traceability in one repeatable command:
 
 The verifier creates tiny paper BUY orders through both the manual order API and
 the signal order API, then sells the manual position back through the manual
@@ -246,6 +247,8 @@ Expected production state:
   `reason_codes`, `risk_flags`, and `passes_paper_gate`.
 - `/signals` returns `crypto_threshold_v1` signals for crypto threshold markets
   once supported assets are enriched with public BTC/ETH/SOL market data.
+- `/signals?category=economics` returns `macro_calendar_v1` OBSERVE-only
+  signals for Macro/Economics markets without auto-trade fields.
 - Market detail exposes a manual refresh action for stale prices; it should write
   a `manual_refresh` row to `api_usage_ledger`.
 - `/paper/performance` exposes cash, position value, realized/unrealized PnL,

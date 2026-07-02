@@ -5,14 +5,14 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from app.core.config import get_settings
 from app.db.session import get_session_factory
 from app.services.ingestion import job_run
-from app.services.signals import compute_crypto_signals
+from app.services.signals import compute_signals
 from app.workers.common import add_interval_job, run_scheduler
 
 
 async def compute_signals_job() -> None:
     async with get_session_factory()() as session:
         async with job_run(session, "compute_signals") as run:
-            run.records_processed = await compute_crypto_signals(session)
+            run.records_processed = await compute_signals(session)
         await session.commit()
 
 

@@ -197,6 +197,22 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
                 }
             ],
         },
+        ("GET", "/signals?category=economics&limit=5"): {
+            "items": [
+                {
+                    "signal_id": "signal-macro-observe",
+                    "market_id": "market-macro",
+                    "strategy_code": "macro_calendar_v1",
+                    "question": "Will the Fed cut rates at the next FOMC meeting?",
+                    "category": "economy",
+                    "action": "OBSERVE",
+                    "side": None,
+                    "model_probability": None,
+                    "executable_price": None,
+                    "edge": None,
+                }
+            ],
+        },
         ("GET", "/signals?action=BUY&limit=5"): {
             "items": [
                 {
@@ -413,6 +429,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "market_bars_freshness",
         "signals",
         "crypto_threshold_signal",
+        "macro_observe_signal",
         "signal_action_BUY",
         "signal_action_OBSERVE",
         "signal_action_IGNORE",
@@ -474,6 +491,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/markets/market-1/bars?range=7d&resolution=hour1", "token-123", None),
         ("GET", "/signals?limit=3", "token-123", None),
         ("GET", "/signals?category=crypto&limit=20", "token-123", None),
+        ("GET", "/signals?category=economics&limit=5", "token-123", None),
         ("GET", "/signals?action=BUY&limit=5", "token-123", None),
         ("GET", "/signals?action=OBSERVE&limit=5", "token-123", None),
         ("GET", "/signals?action=IGNORE&limit=5", "token-123", None),
@@ -542,6 +560,20 @@ def test_verify_production_rejects_missing_observe_signal_action() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="signal_action_OBSERVE"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_missing_macro_observe_signal() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/signals?category=economics&limit=5")] = {"items": []}
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="macro_observe_signal"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",
