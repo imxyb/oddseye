@@ -1738,7 +1738,7 @@ daily_budget_rollup
 5. JWT secret 至少 32 字节随机字符串。
 6. Docker Compose 不对公网暴露 PostgreSQL。
 7. 如部署到 VPS，FastAPI 前面加 Nginx + HTTPS。
-8. 自用系统建议开启 IP allowlist 或 VPN 访问。
+8. IP allowlist 或 VPN 是固定出口 IP 场景的可选加固；如果需要支持 iPhone 蜂窝网络、VPN 或其他动态出口，`auth.ip_allowlist` 可以保持为空。
 
 ### 15.2 配置文件账号密码生成
 
@@ -1936,7 +1936,7 @@ VPS：
   iPhone Expo Go → HTTPS Nginx → FastAPI → Postgres/Redis → Codex
 ```
 
-如果部署到公网，必须加 HTTPS、强密码和 IP allowlist。
+如果部署到公网，必须加 HTTPS 和强密码；IP allowlist/VPN 是可选加固，适合固定出口 IP 场景。
 
 ---
 

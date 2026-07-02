@@ -85,11 +85,12 @@ cd /root/oddseye/backend
 python -m app.tools.hash_password
 ```
 
-For public deployments, also set `auth.ip_allowlist` to your allowed public
-client CIDR(s). `auth.trusted_proxy_cidrs` controls which local reverse proxies
-may supply `X-Forwarded-For`/`X-Real-IP`; keep loopback there for Caddy when it
-proxies to `127.0.0.1:8000`. Leave `ip_allowlist` empty only on a private
-network or while intentionally testing public access.
+`auth.ip_allowlist` is optional hardening for fixed public client networks.
+Leave it empty when the iOS app should work from cellular, VPN, or other dynamic
+networks; if enabled, include every trusted public client CIDR or those clients
+will receive `403 IP not allowed`. `auth.trusted_proxy_cidrs` controls which
+local reverse proxies may supply `X-Forwarded-For`/`X-Real-IP`; keep your Caddy
+proxy source there when it forwards traffic to the API.
 
 5. Run migrations and start services:
 
