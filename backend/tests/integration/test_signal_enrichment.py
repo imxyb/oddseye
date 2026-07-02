@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -156,6 +156,8 @@ async def test_compute_crypto_signals_ignores_unparsed_crypto_markets(tmp_path) 
         assert signal.action == "IGNORE"
         assert signal.side is None
         assert "PARSER_FAILED" in signal.risk_flags
+        assert signal.expires_at is not None
+        assert signal.expires_at - signal.ts >= timedelta(minutes=10)
     finally:
         await sessionmaker.bind.dispose()
 

@@ -14,6 +14,9 @@ THRESHOLD_PATTERN = re.compile(
     r"([0-9]{1,3}(?:,[0-9]{3})+(?:\.[0-9]+)?)\s*(?:USD|USDT|DOLLARS?)?)",
     re.IGNORECASE,
 )
+# Keep signal visibility longer than the 5 minute worker cadence so commit time
+# and an occasional slow run do not create an empty active-signal window.
+SIGNAL_TTL = timedelta(minutes=15)
 
 
 @dataclass(frozen=True)
@@ -138,7 +141,7 @@ class CryptoThresholdStrategy:
                 market_quality_score=context.market_quality_score,
                 reason_codes=reason_codes,
                 risk_flags=[],
-                expires_at=context.now + timedelta(minutes=5),
+                expires_at=context.now + SIGNAL_TTL,
                 snapshot_id=context.snapshot_id,
             )
         if no_edge is not None and no_edge >= self.min_edge:
@@ -156,7 +159,7 @@ class CryptoThresholdStrategy:
                 market_quality_score=context.market_quality_score,
                 reason_codes=reason_codes,
                 risk_flags=[],
-                expires_at=context.now + timedelta(minutes=5),
+                expires_at=context.now + SIGNAL_TTL,
                 snapshot_id=context.snapshot_id,
             )
         reason_codes.append("EDGE_BELOW_THRESHOLD")
@@ -183,6 +186,6 @@ class CryptoThresholdStrategy:
             market_quality_score=context.market_quality_score,
             reason_codes=reason_codes,
             risk_flags=risk_flags,
-            expires_at=context.now + timedelta(minutes=5),
+            expires_at=context.now + SIGNAL_TTL,
             snapshot_id=context.snapshot_id,
         )

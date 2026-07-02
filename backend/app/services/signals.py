@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
@@ -25,6 +25,7 @@ from app.services.paper_trading import PaperOrderInput, create_paper_order
 from app.strategies.crypto_threshold import (
     CryptoMarketContext,
     CryptoThresholdStrategy,
+    SIGNAL_TTL,
     parse_crypto_threshold,
 )
 from app.strategies.base import StrategySignal
@@ -186,7 +187,7 @@ def _ignore_signal(strategy_code: str, market: PredictionMarket, snapshot: Marke
         market_quality_score=snapshot.market_quality_score,
         reason_codes=[],
         risk_flags=["PARSER_FAILED"],
-        expires_at=now + timedelta(minutes=5),
+        expires_at=now + SIGNAL_TTL,
         snapshot_id=snapshot.id,
     )
 

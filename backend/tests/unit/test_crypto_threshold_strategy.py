@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 from app.strategies.crypto_threshold import (
@@ -45,6 +45,30 @@ def test_strategy_generates_buy_yes_when_model_edge_exceeds_market_ask() -> None
     assert signal.side == "YES"
     assert signal.edge >= Decimal("0.07")
     assert "MODEL_EDGE_POSITIVE" in signal.reason_codes
+
+
+def test_strategy_signal_ttl_leaves_overlap_for_scheduler_runtime() -> None:
+    strategy = CryptoThresholdStrategy(min_edge=Decimal("0.07"))
+    now = datetime(2026, 7, 1, tzinfo=timezone.utc)
+
+    signal = strategy.evaluate(
+        CryptoMarketContext(
+            market_id="market-1",
+            question="Will ETH be above $3000 on July 31, 2026?",
+            now=now,
+            deadline=datetime(2026, 7, 31, tzinfo=timezone.utc),
+            current_price=Decimal("3500"),
+            annualized_volatility=Decimal("0.35"),
+            yes_ask=Decimal("0.50"),
+            no_ask=Decimal("0.53"),
+            market_quality_score=Decimal("80"),
+            parser_confidence=Decimal("0.86"),
+            snapshot_id=1,
+        )
+    )
+
+    assert signal.expires_at is not None
+    assert signal.expires_at - now >= timedelta(minutes=10)
 
 
 def test_strategy_observes_when_quality_or_edge_is_too_low() -> None:
