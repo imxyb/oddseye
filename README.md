@@ -124,8 +124,8 @@ API image. It checks health, login, authenticated `/auth/me` identity, Radar liv
 data, Crypto and Macro/Economics category data, documented Radar sort
 dimensions, market detail quotes, quality score explanations, chart bars, active
 `crypto_threshold_v1` crypto threshold signals, usage counters, recent ingestion
-job runs, paper performance metrics, paper positions, and paper trade
-traceability in one repeatable command:
+job runs, paper performance metrics, strategy/category review rollups, paper
+positions, and paper trade traceability in one repeatable command:
 
 The verifier creates tiny paper BUY orders through both the manual order API and
 the signal order API, then sells the manual position back through the manual
@@ -251,6 +251,8 @@ Expected production state:
 - `/paper/performance` exposes cash, position value, realized/unrealized PnL,
   win rate, drawdown, and trade count; `/paper/positions` exposes current
   position quantity, average price, mark price, and PnL.
+- `/paper/review` exposes strategy/category rollups with trade count, average
+  edge, realized PnL, win rate, and max drawdown.
 - Paper orders use bid/ask based fills and can be traced through
   `signal_id`, `snapshot_id`, and `price` in `/paper/trades.csv`.
 

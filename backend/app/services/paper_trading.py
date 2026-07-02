@@ -168,15 +168,14 @@ async def review_report(session: AsyncSession) -> dict[str, Any]:
     trades = await trade_rows(session)
     strategy_stats: dict[str, dict[str, Any]] = {}
     category_stats: dict[str, dict[str, Any]] = {}
-    for trade in trades:
+    for trade in sorted(trades, key=lambda item: item["created_at"]):
         strategy = trade["strategy_code"] or "manual"
         category = trade["category"] or "uncategorized"
         _accumulate(strategy_stats, strategy, trade)
         _accumulate(category_stats, category, trade)
     for collection in (strategy_stats, category_stats):
         for item in collection.values():
-            item.pop("_edge_sum", None)
-            item.pop("_edge_count", None)
+            _finalize_rollup(item)
     return {
         "strategy_stats": list(strategy_stats.values()),
         "category_stats": list(category_stats.values()),
@@ -259,8 +258,17 @@ def _accumulate(stats: dict[str, dict[str, Any]], key: str, trade: dict[str, Any
             "total_trades": 0,
             "total_notional": 0.0,
             "average_edge": None,
+            "realized_pnl": 0.0,
+            "win_rate": 0.0,
+            "max_drawdown": 0.0,
             "_edge_sum": 0.0,
             "_edge_count": 0,
+            "_closed_trades": 0,
+            "_winning_trades": 0,
+            "_position_cost": {},
+            "_position_quantity": {},
+            "_pnl_curve": 0.0,
+            "_pnl_peak": 0.0,
         },
     )
     item["total_trades"] += 1
@@ -269,6 +277,54 @@ def _accumulate(stats: dict[str, dict[str, Any]], key: str, trade: dict[str, Any
         item["_edge_sum"] += trade["edge"]
         item["_edge_count"] += 1
         item["average_edge"] = item["_edge_sum"] / item["_edge_count"]
+    _accumulate_realized_pnl(item, trade)
+
+
+def _accumulate_realized_pnl(item: dict[str, Any], trade: dict[str, Any]) -> None:
+    position_key = (trade["market_id"], trade["outcome_index"])
+    quantity = float(trade["quantity"])
+    notional = float(trade["notional"])
+    fee = float(trade["fee"])
+    side = str(trade["side"]).upper()
+    quantities = item["_position_quantity"]
+    costs = item["_position_cost"]
+    if side == "BUY":
+        quantities[position_key] = quantities.get(position_key, 0.0) + quantity
+        costs[position_key] = costs.get(position_key, 0.0) + notional + fee
+        return
+    if side not in {"SELL", "EXIT"}:
+        return
+    open_quantity = quantities.get(position_key, 0.0)
+    open_cost = costs.get(position_key, 0.0)
+    closed_quantity = min(quantity, open_quantity) if open_quantity > 0 else quantity
+    avg_cost = open_cost / open_quantity if open_quantity > 0 else 0.0
+    realized = notional - fee - (avg_cost * closed_quantity)
+    item["realized_pnl"] += realized
+    item["_closed_trades"] += 1
+    if realized > 0:
+        item["_winning_trades"] += 1
+    item["_pnl_curve"] += realized
+    item["_pnl_peak"] = max(item["_pnl_peak"], item["_pnl_curve"])
+    item["max_drawdown"] = max(item["max_drawdown"], item["_pnl_peak"] - item["_pnl_curve"])
+    if open_quantity > 0:
+        remaining_quantity = max(open_quantity - closed_quantity, 0.0)
+        quantities[position_key] = remaining_quantity
+        costs[position_key] = avg_cost * remaining_quantity
+
+
+def _finalize_rollup(item: dict[str, Any]) -> None:
+    closed_trades = item.pop("_closed_trades", 0)
+    winning_trades = item.pop("_winning_trades", 0)
+    item["win_rate"] = winning_trades / closed_trades if closed_trades else 0.0
+    for key in (
+        "_edge_sum",
+        "_edge_count",
+        "_position_cost",
+        "_position_quantity",
+        "_pnl_curve",
+        "_pnl_peak",
+    ):
+        item.pop(key, None)
 
 
 def _drawdown_from_starting_cash(starting_cash: Decimal, equity: Decimal) -> Decimal:

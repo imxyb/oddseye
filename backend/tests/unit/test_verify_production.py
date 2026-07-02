@@ -208,6 +208,31 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
             "max_drawdown": 0,
             "total_trades": 0,
         },
+        ("GET", "/paper/review"): {
+            "strategy_stats": [
+                {
+                    "key": "crypto_threshold_v1",
+                    "total_trades": 2,
+                    "total_notional": 1.0,
+                    "average_edge": 0.1,
+                    "realized_pnl": 0.05,
+                    "win_rate": 0.5,
+                    "max_drawdown": 0.01,
+                }
+            ],
+            "category_stats": [
+                {
+                    "key": "crypto",
+                    "total_trades": 2,
+                    "total_notional": 1.0,
+                    "average_edge": 0.1,
+                    "realized_pnl": 0.05,
+                    "win_rate": 0.5,
+                    "max_drawdown": 0.01,
+                }
+            ],
+            "trades": [{"fill_id": "fill-1"}],
+        },
         ("GET", "/paper/positions"): {
             "items": [
                 {
@@ -272,6 +297,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "usage",
         "scheduled_jobs",
         "paper_performance",
+        "paper_review",
         "paper_positions",
         "paper_trade_traceability",
     ]
@@ -324,6 +350,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ),
         ("GET", "/settings/usage", "token-123", None),
         ("GET", "/paper/performance", "token-123", None),
+        ("GET", "/paper/review", "token-123", None),
         ("GET", "/paper/positions", "token-123", None),
         ("GET", "/paper/trades.csv", "token-123", None),
     ]

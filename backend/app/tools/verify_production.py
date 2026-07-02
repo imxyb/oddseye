@@ -320,6 +320,16 @@ def verify_production(
     _require_paper_performance(performance)
     checks.append(VerificationCheck("paper_performance", True, "cash, PnL, win rate, and drawdown returned"))
 
+    review = production_client.request("GET", "/paper/review", token=token)
+    _require_paper_review(review)
+    checks.append(
+        VerificationCheck(
+            "paper_review",
+            True,
+            "strategy/category win rate, edge, PnL, drawdown, and trades returned",
+        )
+    )
+
     positions = production_client.request("GET", "/paper/positions", token=token)
     position_count = _require_paper_positions(positions)
     checks.append(VerificationCheck("paper_positions", True, f"{position_count} positions returned with PnL fields"))
@@ -685,6 +695,23 @@ def _require_paper_performance(payload: dict[str, Any]) -> None:
     _require(not missing_fields, "paper_performance", f"missing keys: {', '.join(missing_fields)}")
     for field in sorted(required_fields):
         _require_number(payload.get(field), "paper_performance", field)
+
+
+def _require_paper_review(payload: dict[str, Any]) -> None:
+    for collection_name in ("strategy_stats", "category_stats"):
+        items = payload.get(collection_name)
+        _require(isinstance(items, list) and items, "paper_review", f"missing {collection_name}")
+        for index, item in enumerate(items, start=1):
+            _require(isinstance(item, dict), "paper_review", f"{collection_name} row {index} is not an object")
+            key = item.get("key")
+            _require(isinstance(key, str) and key, "paper_review", f"{collection_name} row {index} missing key")
+            for field in ("total_trades", "total_notional", "realized_pnl", "win_rate", "max_drawdown"):
+                _require_number(item.get(field), "paper_review", f"{collection_name} row {index} {field}")
+            average_edge = item.get("average_edge")
+            if average_edge is not None:
+                _require_number(average_edge, "paper_review", f"{collection_name} row {index} average_edge")
+    trades = payload.get("trades")
+    _require(isinstance(trades, list) and trades, "paper_review", "missing trades")
 
 
 def _require_paper_positions(payload: dict[str, Any]) -> int:
