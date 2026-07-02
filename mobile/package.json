@@ -10,6 +10,7 @@
     "web": "expo start --web",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
+    "verify:expo-go": "node scripts/expoGoSmoke.mjs",
     "verify:public-bundle": "node scripts/verify-public-bundle.mjs"
   },
   "dependencies": {

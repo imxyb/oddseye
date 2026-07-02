@@ -267,6 +267,20 @@ For Expo Go on an iPhone against local dev, set `EXPO_PUBLIC_API_BASE_URL` to
 the computer LAN IP, not `localhost`. For the deployed backend, set it to
 `https://oddseye.fun`.
 
+Before opening Expo Go, run the deployed-login smoke check from the mobile
+workspace. It verifies the public API URL, Expo config, backend health,
+`/auth/login`, and `/auth/me` using the same API base URL compiled into the app:
+
+```bash
+cd mobile
+ODDSEYE_MOBILE_SMOKE_PASSWORD='REPLACE_WITH_PASSWORD' npm run verify:expo-go
+```
+
+The final V1 mobile acceptance still requires a physical iPhone running Expo Go:
+start `npx expo start`, open the project in Expo Go, log in with the configured
+admin credentials, and confirm the app reaches the authenticated tabs without a
+`Could not load` or login error state.
+
 V1's supported mobile development path is Expo Go. Any generated `mobile/ios`
 directory is local-only for ad hoc native/Xcode experiments and is intentionally
 ignored by git.
@@ -281,6 +295,7 @@ uv run ruff check .
 cd ../mobile
 npm run typecheck
 npm test -- --run
+ODDSEYE_MOBILE_SMOKE_PASSWORD='REPLACE_WITH_PASSWORD' npm run verify:expo-go
 npx expo export --platform ios --output-dir dist/ios-public-bundle
 npm run verify:public-bundle -- app app.json babel.config.js src/api src/components src/stores src/theme.ts src/utils dist/ios-public-bundle
 ```
