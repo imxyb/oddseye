@@ -125,6 +125,66 @@ def touch_probability_mc(
     return clamp(max(mc_probability, terminal_probability), 0.0, 1.0)
 
 
+def touch_probability_barrier(
+    spot: float,
+    threshold: float,
+    years_to_expiry: float,
+    annualized_vol: float,
+    direction: str,
+    drift: float = 0.0,
+) -> float:
+    if years_to_expiry <= 0:
+        if direction == "above":
+            return 1.0 if spot >= threshold else 0.0
+        return 1.0 if spot <= threshold else 0.0
+    if direction == "above" and spot >= threshold:
+        return 1.0
+    if direction == "below" and spot <= threshold:
+        return 1.0
+    if spot <= 0 or threshold <= 0:
+        return 0.0
+
+    sigma = max(annualized_vol, 1e-9)
+    log_drift = drift - 0.5 * sigma * sigma
+    if direction == "above":
+        distance = math.log(threshold / spot)
+        drift_for_barrier = log_drift
+        terminal = close_above_probability(spot, threshold, years_to_expiry, annualized_vol, drift)
+    else:
+        distance = math.log(spot / threshold)
+        drift_for_barrier = -log_drift
+        terminal = close_below_probability(spot, threshold, years_to_expiry, annualized_vol, drift)
+
+    if distance <= 0:
+        return 1.0
+    hit = _barrier_hit_probability(
+        distance=distance,
+        drift=drift_for_barrier,
+        sigma=sigma,
+        years_to_expiry=years_to_expiry,
+    )
+    return clamp(max(hit, terminal), 0.0, 1.0)
+
+
+def _barrier_hit_probability(
+    *,
+    distance: float,
+    drift: float,
+    sigma: float,
+    years_to_expiry: float,
+) -> float:
+    denom = sigma * math.sqrt(years_to_expiry)
+    if denom <= 0:
+        return 0.0
+    first = normal_cdf(-(distance - drift * years_to_expiry) / denom)
+    reflected_tail = normal_cdf(-(distance + drift * years_to_expiry) / denom)
+    if reflected_tail == 0:
+        reflected = 0.0
+    else:
+        reflected = math.exp(min(2 * drift * distance / (sigma * sigma), 700.0)) * reflected_tail
+    return clamp(first + reflected, 0.0, 1.0)
+
+
 def choose_mc_steps(horizon_hours: float) -> int:
     if horizon_hours <= 6:
         return max(24, int(horizon_hours * 12))
@@ -179,7 +239,7 @@ def estimate_probability(
     )
     p_low, _ = default_calibrate(p_low_raw, _data_quality(snapshot), spec.market_type)
     p_high, _ = default_calibrate(p_high_raw, _data_quality(snapshot), spec.market_type)
-    model_family = "touch_barrier_mc_v2" if spec.market_type.startswith("hit_") else "close_lognormal_v2"
+    model_family = "touch_barrier_closed_form_v2" if spec.market_type.startswith("hit_") else "close_lognormal_v2"
     return ProbabilityEstimate(
         p_raw=p_model,
         p_calibrated=p_trade,
@@ -252,26 +312,20 @@ def _raw_probability(
             annualized_vol,
         )
     if spec.market_type == "hit_above" and spec.threshold is not None:
-        return touch_probability_mc(
+        return touch_probability_barrier(
             spot,
             float(spec.threshold),
             years,
             annualized_vol,
             "above",
-            n_paths=mc_paths,
-            n_steps=choose_mc_steps(horizon_hours),
-            seed=mc_seed,
         )
     if spec.market_type == "hit_below" and spec.threshold is not None:
-        return touch_probability_mc(
+        return touch_probability_barrier(
             spot,
             float(spec.threshold),
             years,
             annualized_vol,
             "below",
-            n_paths=mc_paths,
-            n_steps=choose_mc_steps(horizon_hours),
-            seed=mc_seed,
         )
     return 0.5
 

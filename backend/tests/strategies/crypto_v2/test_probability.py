@@ -10,6 +10,7 @@ from app.strategies.crypto_v2.probability import (
     range_close_probability,
     touch_probability_mc,
 )
+from app.strategies.crypto_v2 import probability as probability_module
 from app.strategies.crypto_v2.spec import CryptoAssetSnapshot, CryptoMarketSpec
 
 
@@ -140,6 +141,46 @@ def test_probability_stress_outputs_valid_range() -> None:
     assert 0.0 <= estimate.p_high <= 1.0
     assert estimate.p_low <= estimate.p_high or estimate.p_high <= estimate.p_low
     assert estimate.model_family == "close_lognormal_v2"
+
+
+def test_estimate_hit_probability_does_not_require_monte_carlo(monkeypatch) -> None:
+    def fail_if_called(*args, **kwargs):
+        raise AssertionError("batch signal computation should not run Monte Carlo by default")
+
+    monkeypatch.setattr(probability_module, "touch_probability_mc", fail_if_called)
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    spec = CryptoMarketSpec(
+        market_id="m1",
+        event_id="e1",
+        protocol="POLYMARKET",
+        question="Will BTC hit $120,000 by July 31, 2026?",
+        asset="BTC",
+        quote_currency="USDT",
+        metric="spot_price",
+        market_type="hit_above",
+        threshold=Decimal("120000"),
+        lower_threshold=None,
+        upper_threshold=None,
+        window_start=None,
+        window_end=now + timedelta(days=30),
+        settlement_time=None,
+        settlement_timezone=None,
+        resolution_source="Binance BTC/USDT High",
+        parser_confidence=0.93,
+        ambiguity_flags=[],
+        raw_parse={},
+    )
+
+    estimate = estimate_probability(
+        spec,
+        _asset_snapshot(now, spot=Decimal("108000"), vol=0.48),
+        now=now,
+        market_mid=0.25,
+        spread=0.02,
+    )
+
+    assert 0.0 <= estimate.p_calibrated <= 1.0
+    assert estimate.model_family == "touch_barrier_closed_form_v2"
 
 
 def _asset_snapshot(now: datetime, spot: Decimal, vol: float) -> CryptoAssetSnapshot:
