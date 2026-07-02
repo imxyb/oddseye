@@ -5,8 +5,9 @@ import { useEffect, useState } from "react";
 import { ActivityIndicator, StyleSheet, View } from "react-native";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 
+import { AppLogo } from "../src/components/AppLogo";
 import { useAuthStore } from "../src/stores/authStore";
-import { colors } from "../src/theme";
+import { colors, spacing } from "../src/theme";
 
 function AuthBootstrapper() {
   const router = useRouter();
@@ -40,6 +41,7 @@ function AuthBootstrapper() {
   if (!isBootstrapped) {
     return (
       <View pointerEvents="auto" style={styles.bootOverlay}>
+        <AppLogo size={72} />
         <ActivityIndicator color={colors.primary} size="large" />
       </View>
     );
@@ -64,20 +66,21 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <StatusBar style="dark" />
+        <StatusBar style="light" />
         <Stack
           screenOptions={{
             contentStyle: { backgroundColor: colors.background },
+            headerStyle: { backgroundColor: colors.background },
             headerShadowVisible: false,
             headerTintColor: colors.text,
-            headerTitleStyle: { fontWeight: "800" },
+            headerTitleStyle: { fontWeight: "900" },
           }}
         >
           <Stack.Screen name="index" options={{ headerShown: false }} />
           <Stack.Screen name="login" options={{ headerShown: false }} />
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="market/[id]" options={{ title: "Market" }} />
-          <Stack.Screen name="paper/new-order" options={{ title: "Paper order" }} />
+          <Stack.Screen name="market/[id]" options={{ title: "市场详情" }} />
+          <Stack.Screen name="paper/new-order" options={{ title: "纸上下单" }} />
         </Stack>
         <AuthBootstrapper />
       </QueryClientProvider>
@@ -90,6 +93,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     alignItems: "center",
     backgroundColor: colors.background,
+    gap: spacing.xl,
     justifyContent: "center",
   },
 });

@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useLocalSearchParams } from "expo-router";
 import { useState } from "react";
@@ -16,7 +17,8 @@ import { createPaperOrder, paperKeys } from "../../src/api/paper";
 import { createPaperOrderFromSignal } from "../../src/api/signals";
 import type { PaperOrderRequest } from "../../src/api/types";
 import { PaperOrderSheet } from "../../src/components/PaperOrderSheet";
-import { colors, spacing } from "../../src/theme";
+import { colors, radius, shadows, spacing } from "../../src/theme";
+import { friendlyErrorMessage } from "../../src/utils/errors";
 
 function SignalOrderForm({
   signalId,
@@ -46,7 +48,7 @@ function SignalOrderForm({
 
   async function submit() {
     if (Number(notional) <= 0 || Number(limitPrice) <= 0) {
-      setLocalError("Fill notional and limit price.");
+      setLocalError("请填写名义金额和限价。");
       return;
     }
 
@@ -56,13 +58,18 @@ function SignalOrderForm({
 
   return (
     <View style={styles.card}>
-      <Text style={styles.heading}>Signal paper order</Text>
-      <Text style={styles.subtle}>Signal ID {signalId}</Text>
+      <View style={styles.titleRow}>
+        <View style={styles.titleIcon}>
+          <Ionicons color={colors.primary} name="flash" size={16} />
+        </View>
+        <Text style={styles.heading}>信号下单</Text>
+      </View>
+      <Text style={styles.subtle}>信号 {signalId}</Text>
 
       <TextInput
         autoCapitalize="none"
         onChangeText={setAccountId}
-        placeholder="Account ID (optional)"
+        placeholder="账户 ID（可选）"
         placeholderTextColor={colors.textMuted}
         style={styles.input}
         value={accountId}
@@ -71,7 +78,7 @@ function SignalOrderForm({
         <TextInput
           keyboardType="decimal-pad"
           onChangeText={setNotional}
-          placeholder="Notional"
+          placeholder="名义金额"
           placeholderTextColor={colors.textMuted}
           style={[styles.input, styles.flexInput]}
           value={notional}
@@ -79,7 +86,7 @@ function SignalOrderForm({
         <TextInput
           keyboardType="decimal-pad"
           onChangeText={setLimitPrice}
-          placeholder="Limit price"
+          placeholder="限价"
           placeholderTextColor={colors.textMuted}
           style={[styles.input, styles.flexInput]}
           value={limitPrice}
@@ -89,9 +96,7 @@ function SignalOrderForm({
       {localError || mutation.error ? (
         <Text style={styles.error}>
           {localError ??
-            (mutation.error instanceof Error
-              ? mutation.error.message
-              : "Could not create signal order")}
+            friendlyErrorMessage(mutation.error, "信号订单创建失败")}
         </Text>
       ) : null}
 
@@ -105,14 +110,17 @@ function SignalOrderForm({
         ]}
       >
         {mutation.isPending ? (
-          <ActivityIndicator color="#ffffff" />
+          <ActivityIndicator color={colors.background} />
         ) : (
-          <Text style={styles.submitText}>Create from signal</Text>
+          <View style={styles.submitContent}>
+            <Ionicons color={colors.background} name="checkmark-circle" size={17} />
+            <Text style={styles.submitText}>按信号下单</Text>
+          </View>
         )}
       </Pressable>
 
       {mutation.isSuccess ? (
-        <Text style={styles.success}>Paper order submitted.</Text>
+        <Text style={styles.success}>订单已提交</Text>
       ) : null}
     </View>
   );
@@ -160,7 +168,7 @@ export default function NewPaperOrderScreen() {
         )}
 
         {manualMutation.isSuccess ? (
-          <Text style={styles.success}>Paper order submitted.</Text>
+          <Text style={styles.success}>订单已提交</Text>
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -179,10 +187,11 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     gap: spacing.md,
     padding: spacing.lg,
+    ...shadows.panel,
   },
   heading: {
     color: colors.text,
@@ -194,10 +203,25 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "600",
   },
+  titleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  titleIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryLine,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
+  },
   input: {
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.backgroundRaised,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     color: colors.text,
     minHeight: 46,
@@ -218,7 +242,7 @@ const styles = StyleSheet.create({
   submit: {
     alignItems: "center",
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     minHeight: 48,
     justifyContent: "center",
   },
@@ -229,9 +253,14 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   submitText: {
-    color: "#ffffff",
+    color: colors.background,
     fontSize: 15,
     fontWeight: "800",
+  },
+  submitContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
   },
   success: {
     color: colors.success,

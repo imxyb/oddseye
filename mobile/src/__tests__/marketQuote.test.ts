@@ -10,12 +10,12 @@ describe("buildMarketQuoteMetrics", () => {
     ]);
 
     expect(metrics.map((metric) => metric.label)).toEqual([
-      "YES bid",
-      "YES ask",
-      "YES spread",
-      "NO bid",
-      "NO ask",
-      "NO spread",
+      "YES 结果 买价",
+      "YES 结果 卖价",
+      "YES 结果 价差",
+      "NO 结果 买价",
+      "NO 结果 卖价",
+      "NO 结果 价差",
     ]);
     expect(metrics.map((metric) => metric.value)).toEqual([
       "54c",

@@ -75,6 +75,7 @@ pnpm-debug.log*
 
 # Tool caches
 .cache/
+.superpowers/
 .parcel-cache/
 .vite/
 .next/

@@ -4,16 +4,19 @@
     "slug": "oddseye-mobile",
     "version": "0.1.0",
     "orientation": "portrait",
+    "icon": "./assets/icon.png",
     "scheme": "oddseye",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
+      "icon": "./assets/icon.png",
       "bundleIdentifier": "fun.oddseye.app",
       "supportsTablet": true
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#0f172a"
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#06090d"
       }
     },
     "web": {

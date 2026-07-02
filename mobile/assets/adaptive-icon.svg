@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-label="OddsEye adaptive foreground">
+  <defs>
+    <linearGradient id="ring" x1="220" y1="188" x2="804" y2="812" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4FE3BF"/>
+      <stop offset="54%" stop-color="#75ADFF"/>
+      <stop offset="100%" stop-color="#D9B866"/>
+    </linearGradient>
+    <linearGradient id="curve" x1="286" y1="588" x2="738" y2="402" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D9B866"/>
+      <stop offset="50%" stop-color="#4FE3BF"/>
+      <stop offset="100%" stop-color="#75ADFF"/>
+    </linearGradient>
+  </defs>
+  <path d="M188 512c74-134 187-201 324-201s250 67 324 201c-74 134-187 201-324 201S262 646 188 512Z" fill="#0B151E" stroke="url(#ring)" stroke-width="46"/>
+  <circle cx="512" cy="512" r="112" fill="#071017" stroke="#F6FAF8" stroke-opacity="0.9" stroke-width="34"/>
+  <circle cx="512" cy="512" r="52" fill="#4FE3BF"/>
+  <path d="M288 592c76 0 86-120 168-120 70 0 78 80 142 80 53 0 79-51 144-86" fill="none" stroke="url(#curve)" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M512 222v86M512 716v86M222 512h86M716 512h86" stroke="#D9B866" stroke-width="32" stroke-linecap="round"/>
+</svg>

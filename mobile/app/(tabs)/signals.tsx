@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useMemo, useState } from "react";
@@ -14,9 +15,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getSignals, signalKeys } from "../../src/api/signals";
 import type { Signal } from "../../src/api/types";
+import { shortCountLabel } from "../../src/brand";
 import { SignalBadge } from "../../src/components/SignalBadge";
-import { colors, spacing } from "../../src/theme";
+import { colors, radius, shadows, spacing } from "../../src/theme";
 import { formatCents, formatPercent } from "../../src/utils/format";
+import { categoryLabel } from "../../src/utils/labels";
 import { buildSignalExplanationRows } from "../../src/utils/signalExplanation";
 import {
   defaultSignalFilterKey,
@@ -64,7 +67,7 @@ function SignalCard({ signal }: { signal: Signal }) {
     >
       <View style={styles.cardHeader}>
         <SignalBadge action={signal.action} side={signal.side} />
-        <Text style={styles.category}>{signal.category ?? "market"}</Text>
+        <Text style={styles.category}>{categoryLabel(signal.category)}</Text>
       </View>
 
       <Text style={styles.question} numberOfLines={3}>
@@ -73,17 +76,17 @@ function SignalCard({ signal }: { signal: Signal }) {
 
       <View style={styles.metrics}>
         <View style={styles.metric}>
-          <Text style={styles.metricLabel}>Edge</Text>
+          <Text style={styles.metricLabel}>优势</Text>
           <Text style={styles.metricValue}>{formatPercent(signal.edge)}</Text>
         </View>
         <View style={styles.metric}>
-          <Text style={styles.metricLabel}>Confidence</Text>
+          <Text style={styles.metricLabel}>置信</Text>
           <Text style={styles.metricValue}>
             {formatPercent(signal.confidence)}
           </Text>
         </View>
         <View style={styles.metric}>
-          <Text style={styles.metricLabel}>Limit</Text>
+          <Text style={styles.metricLabel}>限价</Text>
           <Text style={styles.metricValue}>
             {formatCents(signal.executable_price)}
           </Text>
@@ -91,7 +94,7 @@ function SignalCard({ signal }: { signal: Signal }) {
       </View>
 
       {signal.rationale ? (
-        <Text style={styles.rationale} numberOfLines={3}>
+        <Text style={styles.rationale} numberOfLines={2}>
           {signal.rationale}
         </Text>
       ) : null}
@@ -101,7 +104,7 @@ function SignalCard({ signal }: { signal: Signal }) {
           {explanationRows.map((row) => (
             <View key={row.label} style={styles.explanationRow}>
               <Text style={styles.explanationLabel}>{row.label}</Text>
-              <Text style={styles.explanationValue} numberOfLines={2}>
+              <Text style={styles.explanationValue} numberOfLines={1}>
                 {row.value}
               </Text>
             </View>
@@ -123,7 +126,8 @@ function SignalCard({ signal }: { signal: Signal }) {
           }
           style={styles.orderButton}
         >
-          <Text style={styles.orderText}>Paper order</Text>
+          <Ionicons color={colors.background} name="paper-plane" size={15} />
+          <Text style={styles.orderText}>纸上下单</Text>
         </Pressable>
       ) : null}
     </Pressable>
@@ -145,23 +149,38 @@ export default function SignalsScreen() {
     queryKey: signalKeys.list(params),
     queryFn: () => getSignals(params),
   });
+  const signals = signalsQuery.data?.items ?? [];
 
   return (
     <SafeAreaView edges={["left", "right"]} style={styles.safeArea}>
       <FlatList
         contentContainerStyle={styles.listContent}
-        data={signalsQuery.data?.items ?? []}
+        data={signals}
         keyExtractor={(item) => item.signal_id}
         ListHeaderComponent={
-          <View style={styles.filterGroup}>
-            {signalFilters.map((filter) => (
-              <ActionFilter
-                key={filter.key}
-                label={filter.label}
-                selected={selectedFilter === filter.key}
-                onPress={() => setSelectedFilter(filter.key)}
-              />
-            ))}
+          <View style={styles.header}>
+            <View style={styles.hero}>
+              <View>
+                <Text style={styles.kicker}>Signal stream</Text>
+                <Text style={styles.heroValue}>
+                  {signalsQuery.isLoading ? "..." : shortCountLabel(signals.length)}
+                </Text>
+                <Text style={styles.heroLabel}>active signals</Text>
+              </View>
+              <View style={styles.heroIcon}>
+                <Ionicons color={colors.accent} name="pulse" size={30} />
+              </View>
+            </View>
+            <View style={styles.filterGroup}>
+              {signalFilters.map((filter) => (
+                <ActionFilter
+                  key={filter.key}
+                  label={filter.label}
+                  selected={selectedFilter === filter.key}
+                  onPress={() => setSelectedFilter(filter.key)}
+                />
+              ))}
+            </View>
           </View>
         }
         ListEmptyComponent={
@@ -171,8 +190,8 @@ export default function SignalsScreen() {
             ) : (
               <Text style={styles.stateText}>
                 {signalsQuery.error
-                  ? "Could not load signals."
-                  : "No active signals yet."}
+                  ? "信号加载失败"
+                  : "暂无活跃信号"}
               </Text>
             )}
           </View>
@@ -198,6 +217,49 @@ const styles = StyleSheet.create({
   listContent: {
     gap: spacing.md,
     padding: spacing.lg,
+    paddingBottom: 96,
+  },
+  header: {
+    gap: spacing.md,
+  },
+  hero: {
+    alignItems: "flex-end",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: spacing.lg,
+    ...shadows.panel,
+  },
+  kicker: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  heroValue: {
+    color: colors.text,
+    fontSize: 38,
+    fontWeight: "900",
+    lineHeight: 42,
+    marginTop: 4,
+  },
+  heroLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  heroIcon: {
+    alignItems: "center",
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 64,
+    justifyContent: "center",
+    width: 64,
   },
   filterGroup: {
     flexDirection: "row",
@@ -206,12 +268,15 @@ const styles = StyleSheet.create({
   },
   filterButton: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,
     paddingVertical: 9,
   },
   filterActive: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryLine,
   },
   filterText: {
     color: colors.textMuted,
@@ -219,18 +284,20 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   filterTextActive: {
-    color: colors.surface,
+    color: colors.primary,
   },
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     gap: spacing.md,
     padding: spacing.lg,
+    ...shadows.panel,
   },
   pressed: {
     opacity: 0.72,
+    transform: [{ scale: 0.99 }],
   },
   cardHeader: {
     alignItems: "center",
@@ -240,8 +307,7 @@ const styles = StyleSheet.create({
   category: {
     color: colors.textMuted,
     fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
+    fontWeight: "800",
   },
   question: {
     color: colors.text,
@@ -255,7 +321,9 @@ const styles = StyleSheet.create({
   },
   metric: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     flex: 1,
     gap: 3,
     padding: spacing.md,
@@ -280,7 +348,9 @@ const styles = StyleSheet.create({
   },
   explanationRow: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     gap: 3,
     padding: spacing.md,
   },
@@ -288,7 +358,6 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 11,
     fontWeight: "700",
-    textTransform: "uppercase",
   },
   explanationValue: {
     color: colors.text,
@@ -298,13 +367,17 @@ const styles = StyleSheet.create({
   },
   orderButton: {
     alignItems: "center",
-    backgroundColor: colors.primarySoft,
-    borderRadius: 8,
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 7,
     minHeight: 42,
     justifyContent: "center",
   },
   orderText: {
-    color: colors.primary,
+    color: colors.background,
     fontSize: 14,
     fontWeight: "800",
   },

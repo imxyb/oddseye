@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { useState } from "react";
 import {
@@ -12,8 +13,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
+import { AppLogo } from "../src/components/AppLogo";
 import { useAuthStore } from "../src/stores/authStore";
-import { colors, spacing } from "../src/theme";
+import { colors, radius, shadows, spacing } from "../src/theme";
+import { friendlyErrorMessage } from "../src/utils/errors";
 
 export default function LoginScreen() {
   const login = useAuthStore((state) => state.login);
@@ -25,7 +28,7 @@ export default function LoginScreen() {
 
   async function handleLogin() {
     if (!username.trim() || !password) {
-      setLocalError("Enter username and password.");
+      setLocalError("请输入用户名和密码。");
       return;
     }
 
@@ -36,7 +39,7 @@ export default function LoginScreen() {
       await login(username.trim(), password);
       router.replace("/(tabs)/radar");
     } catch (error) {
-      setLocalError(error instanceof Error ? error.message : "Login failed");
+      setLocalError(friendlyErrorMessage(error, "登录失败"));
     } finally {
       setIsSubmitting(false);
     }
@@ -49,8 +52,10 @@ export default function LoginScreen() {
         style={styles.container}
       >
         <View style={styles.header}>
+          <AppLogo size={82} />
+          <Text style={styles.kicker}>私有策略台</Text>
           <Text style={styles.title}>OddsEye</Text>
-          <Text style={styles.subtitle}>Sign in to your private paper trading workspace.</Text>
+          <Text style={styles.subtitle}>预测市场雷达 · Paper command deck</Text>
         </View>
 
         <View style={styles.form}>
@@ -58,7 +63,7 @@ export default function LoginScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             onChangeText={setUsername}
-            placeholder="Username"
+            placeholder="用户名"
             placeholderTextColor={colors.textMuted}
             style={styles.input}
             textContentType="username"
@@ -68,7 +73,7 @@ export default function LoginScreen() {
             autoCapitalize="none"
             autoCorrect={false}
             onChangeText={setPassword}
-            placeholder="Password"
+            placeholder="密码"
             placeholderTextColor={colors.textMuted}
             secureTextEntry
             style={styles.input}
@@ -91,9 +96,12 @@ export default function LoginScreen() {
             ]}
           >
             {isSubmitting ? (
-              <ActivityIndicator color="#ffffff" />
+              <ActivityIndicator color={colors.background} />
             ) : (
-              <Text style={styles.buttonText}>Sign in</Text>
+              <View style={styles.buttonContent}>
+                <Ionicons color={colors.background} name="scan-circle" size={18} />
+                <Text style={styles.buttonText}>进入工作台</Text>
+              </View>
             )}
           </Pressable>
         </View>
@@ -113,8 +121,22 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
   },
   header: {
+    alignItems: "flex-start",
     gap: spacing.sm,
     marginBottom: spacing.xl,
+  },
+  kicker: {
+    alignSelf: "flex-start",
+    backgroundColor: colors.accentSoft,
+    borderColor: colors.accent,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    color: colors.accent,
+    fontSize: 12,
+    fontWeight: "900",
+    overflow: "hidden",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
   },
   title: {
     color: colors.text,
@@ -127,12 +149,18 @@ const styles = StyleSheet.create({
     lineHeight: 23,
   },
   form: {
-    gap: spacing.md,
-  },
-  input: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    gap: spacing.md,
+    padding: spacing.lg,
+    ...shadows.panel,
+  },
+  input: {
+    backgroundColor: colors.backgroundRaised,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     color: colors.text,
     fontSize: 16,
@@ -147,7 +175,7 @@ const styles = StyleSheet.create({
   button: {
     alignItems: "center",
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     minHeight: 52,
     justifyContent: "center",
   },
@@ -158,8 +186,13 @@ const styles = StyleSheet.create({
     opacity: 0.78,
   },
   buttonText: {
-    color: "#ffffff",
+    color: colors.background,
     fontSize: 16,
     fontWeight: "800",
+  },
+  buttonContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
   },
 });

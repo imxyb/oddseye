@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import {
   ActivityIndicator,
@@ -15,8 +16,9 @@ import {
   getPaperReview,
   paperKeys,
 } from "../../src/api/paper";
+import { AppLogo } from "../../src/components/AppLogo";
 import { PositionCard } from "../../src/components/PositionCard";
-import { colors, spacing } from "../../src/theme";
+import { colors, radius, shadows, spacing } from "../../src/theme";
 import { buildPerformanceMetrics } from "../../src/utils/paperPerformance";
 import {
   buildReviewRollupSections,
@@ -61,20 +63,32 @@ export default function PortfolioScreen() {
         keyExtractor={(item) => item.position_id ?? item.market_id}
         ListHeaderComponent={
           <View style={styles.headerContent}>
-            <Text style={styles.heading}>Paper account</Text>
+            <View style={styles.hero}>
+              <View style={styles.brandRow}>
+                <AppLogo size={48} />
+                <View>
+                  <Text style={styles.kicker}>Paper deck</Text>
+                  <Text style={styles.heading}>纸上账户</Text>
+                </View>
+              </View>
+              <Ionicons color={colors.info} name="wallet" size={28} />
+            </View>
             {performanceQuery.isLoading ? (
               <ActivityIndicator color={colors.primary} />
             ) : performanceQuery.data ? (
               <View style={styles.metrics}>
                 {buildPerformanceMetrics(performanceQuery.data).map((metric) => (
                   <View key={metric.label} style={styles.metric}>
-                    <Text style={styles.metricLabel}>{metric.label}</Text>
+                    <View style={styles.metricHeader}>
+                      <Ionicons color={colors.textMuted} name="stats-chart" size={13} />
+                      <Text style={styles.metricLabel}>{metric.label}</Text>
+                    </View>
                     <Text style={styles.metricValue}>{metric.value}</Text>
                   </View>
                 ))}
               </View>
             ) : (
-              <Text style={styles.stateText}>Performance is unavailable.</Text>
+              <Text style={styles.stateText}>账户数据暂不可用</Text>
             )}
 
             <View style={styles.reviewGroup}>
@@ -102,13 +116,13 @@ export default function PortfolioScreen() {
                       </View>
                     ))
                   ) : (
-                    <Text style={styles.stateText}>No review rows yet.</Text>
+                    <Text style={styles.stateText}>暂无复盘数据</Text>
                   )}
                 </View>
               ))}
 
               <View style={styles.reviewSection}>
-                <Text style={styles.sectionHeading}>Trade trace</Text>
+                <Text style={styles.sectionHeading}>成交追踪</Text>
                 {tradeRows.length > 0 ? (
                   tradeRows.map((trade) => (
                     <View key={trade.id} style={styles.tradeRow}>
@@ -123,10 +137,10 @@ export default function PortfolioScreen() {
                       <View style={styles.traceMeta}>
                         <Text style={styles.price}>{trade.price}</Text>
                         <Text style={styles.traceText} numberOfLines={1}>
-                          Signal {trade.signal}
+                          信号 {trade.signal}
                         </Text>
                         <Text style={styles.traceText} numberOfLines={1}>
-                          Snapshot {trade.snapshot}
+                          快照 {trade.snapshot}
                         </Text>
                         <Text style={styles.traceText} numberOfLines={1}>
                           {trade.strategy}
@@ -135,7 +149,7 @@ export default function PortfolioScreen() {
                     </View>
                   ))
                 ) : (
-                  <Text style={styles.stateText}>No trade traces yet.</Text>
+                  <Text style={styles.stateText}>暂无成交记录</Text>
                 )}
               </View>
             </View>
@@ -148,8 +162,8 @@ export default function PortfolioScreen() {
             ) : (
               <Text style={styles.stateText}>
                 {positionsQuery.error
-                  ? "Could not load positions."
-                  : "No open paper positions."}
+                  ? "持仓加载失败"
+                  : "暂无持仓"}
               </Text>
             )}
           </View>
@@ -175,9 +189,32 @@ const styles = StyleSheet.create({
   listContent: {
     gap: spacing.md,
     padding: spacing.lg,
+    paddingBottom: 96,
   },
   headerContent: {
     gap: spacing.md,
+  },
+  hero: {
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    padding: spacing.lg,
+    ...shadows.panel,
+  },
+  brandRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  kicker: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
   },
   heading: {
     color: colors.text,
@@ -192,17 +229,23 @@ const styles = StyleSheet.create({
   metric: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     flexBasis: "48%",
     flexGrow: 1,
     gap: 4,
     padding: spacing.lg,
+    ...shadows.panel,
   },
   metricLabel: {
     color: colors.textMuted,
     fontSize: 12,
     fontWeight: "700",
+  },
+  metricHeader: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 5,
   },
   metricValue: {
     color: colors.text,
@@ -224,10 +267,11 @@ const styles = StyleSheet.create({
   reviewItem: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     gap: spacing.sm,
     padding: spacing.md,
+    ...shadows.panel,
   },
   reviewKey: {
     color: colors.text,
@@ -256,11 +300,12 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: spacing.md,
     padding: spacing.md,
+    ...shadows.panel,
   },
   tradeMain: {
     flex: 1,

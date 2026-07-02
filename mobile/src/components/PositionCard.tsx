@@ -1,8 +1,10 @@
+import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
 
 import type { PaperPosition } from "../api/types";
-import { colors, spacing } from "../theme";
+import { colors, radius, shadows, spacing } from "../theme";
 import { formatCents, formatCurrency } from "../utils/format";
+import { sideLabel } from "../utils/labels";
 
 interface PositionCardProps {
   position: PaperPosition;
@@ -15,9 +17,14 @@ export function PositionCard({ position }: PositionCardProps) {
   return (
     <View style={styles.card}>
       <View style={styles.header}>
-        <Text style={styles.title} numberOfLines={2}>
-          {position.question ?? position.market_id}
-        </Text>
+        <View style={styles.titleGroup}>
+          <View style={styles.assetIcon}>
+            <Ionicons color={colors.primary} name="analytics" size={16} />
+          </View>
+          <Text style={styles.title} numberOfLines={2}>
+            {position.question ?? position.market_id}
+          </Text>
+        </View>
         <Text style={[styles.pnl, { color: pnlColor }]}>
           {formatCurrency(position.unrealized_pnl)}
         </Text>
@@ -25,21 +32,21 @@ export function PositionCard({ position }: PositionCardProps) {
 
       <View style={styles.grid}>
         <View style={styles.metric}>
-          <Text style={styles.label}>Outcome</Text>
+          <Text style={styles.label}>结果</Text>
           <Text style={styles.value}>
-            {position.outcome_label ?? (position.outcome_index === 0 ? "YES" : "NO")}
+            {position.outcome_label ?? sideLabel(position.outcome_index === 0 ? "YES" : "NO")}
           </Text>
         </View>
         <View style={styles.metric}>
-          <Text style={styles.label}>Qty</Text>
+          <Text style={styles.label}>数量</Text>
           <Text style={styles.value}>{position.quantity}</Text>
         </View>
         <View style={styles.metric}>
-          <Text style={styles.label}>Avg</Text>
+          <Text style={styles.label}>均价</Text>
           <Text style={styles.value}>{formatCents(position.avg_price)}</Text>
         </View>
         <View style={styles.metric}>
-          <Text style={styles.label}>Mark</Text>
+          <Text style={styles.label}>标记价</Text>
           <Text style={styles.value}>{formatCents(position.mark_price)}</Text>
         </View>
       </View>
@@ -51,16 +58,34 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     gap: spacing.md,
     padding: spacing.lg,
+    ...shadows.panel,
   },
   header: {
     alignItems: "flex-start",
     flexDirection: "row",
     gap: spacing.md,
     justifyContent: "space-between",
+  },
+  titleGroup: {
+    alignItems: "flex-start",
+    flex: 1,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minWidth: 0,
+  },
+  assetIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryLine,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
   },
   title: {
     color: colors.text,
@@ -80,7 +105,9 @@ const styles = StyleSheet.create({
   },
   metric: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     flexBasis: "48%",
     flexGrow: 1,
     gap: 3,

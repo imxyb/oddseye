@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -9,7 +10,9 @@ import {
 } from "react-native";
 
 import type { OrderSide, PaperOrderRequest } from "../api/types";
-import { colors, spacing } from "../theme";
+import { colors, radius, shadows, spacing } from "../theme";
+import { friendlyErrorMessage } from "../utils/errors";
+import { actionLabel, sideLabel } from "../utils/labels";
 
 interface PaperOrderSheetProps {
   marketId?: string;
@@ -28,7 +31,7 @@ export function PaperOrderSheet({
   defaultLimitPrice,
   defaultQuantity = 100,
   onSubmit,
-  submitLabel = "Create paper order",
+  submitLabel = "提交订单",
 }: PaperOrderSheetProps) {
   const [accountId, setAccountId] = useState(defaultAccountId);
   const [editableMarketId, setEditableMarketId] = useState(marketId ?? "");
@@ -52,7 +55,7 @@ export function PaperOrderSheet({
 
   async function handleSubmit() {
     if (!canSubmit) {
-      setError("Fill market, limit price, and quantity.");
+      setError("请补全市场、限价和数量。");
       return;
     }
 
@@ -69,11 +72,7 @@ export function PaperOrderSheet({
         quantity: Number(quantity),
       });
     } catch (submitError) {
-      setError(
-        submitError instanceof Error
-          ? submitError.message
-          : "Could not create order",
-      );
+      setError(friendlyErrorMessage(submitError, "订单创建失败"));
     } finally {
       setIsSubmitting(false);
     }
@@ -81,7 +80,12 @@ export function PaperOrderSheet({
 
   return (
     <View style={styles.container}>
-      <Text style={styles.title}>Paper order</Text>
+      <View style={styles.titleRow}>
+        <View style={styles.titleIcon}>
+          <Ionicons color={colors.primary} name="paper-plane" size={16} />
+        </View>
+        <Text style={styles.title}>纸上订单</Text>
+      </View>
 
       <View style={styles.segment}>
         {sides.map((value) => (
@@ -97,7 +101,7 @@ export function PaperOrderSheet({
                 side === value && styles.segmentTextActive,
               ]}
             >
-              {value}
+              {actionLabel(value)}
             </Text>
           </Pressable>
         ))}
@@ -120,7 +124,7 @@ export function PaperOrderSheet({
                 outcomeIndex === value && styles.segmentTextActive,
               ]}
             >
-              {value === 0 ? "YES" : "NO"}
+              {sideLabel(value === 0 ? "YES" : "NO")}
             </Text>
           </Pressable>
         ))}
@@ -129,7 +133,7 @@ export function PaperOrderSheet({
       <TextInput
         autoCapitalize="none"
         onChangeText={setAccountId}
-        placeholder="Account ID (optional)"
+        placeholder="账户 ID（可选）"
         placeholderTextColor={colors.textMuted}
         style={styles.input}
         value={accountId}
@@ -139,7 +143,7 @@ export function PaperOrderSheet({
         <TextInput
           autoCapitalize="none"
           onChangeText={setEditableMarketId}
-          placeholder="Market ID"
+          placeholder="市场 ID"
           placeholderTextColor={colors.textMuted}
           style={styles.input}
           value={editableMarketId}
@@ -150,7 +154,7 @@ export function PaperOrderSheet({
         <TextInput
           keyboardType="decimal-pad"
           onChangeText={setLimitPrice}
-          placeholder="Limit price"
+          placeholder="限价"
           placeholderTextColor={colors.textMuted}
           style={[styles.input, styles.flexInput]}
           value={limitPrice}
@@ -158,7 +162,7 @@ export function PaperOrderSheet({
         <TextInput
           keyboardType="decimal-pad"
           onChangeText={setQuantity}
-          placeholder="Quantity"
+          placeholder="数量"
           placeholderTextColor={colors.textMuted}
           style={[styles.input, styles.flexInput]}
           value={quantity}
@@ -178,9 +182,12 @@ export function PaperOrderSheet({
         ]}
       >
         {isSubmitting ? (
-          <ActivityIndicator color="#ffffff" />
+          <ActivityIndicator color={colors.background} />
         ) : (
-          <Text style={styles.submitText}>{submitLabel}</Text>
+          <View style={styles.submitContent}>
+            <Ionicons color={colors.background} name="checkmark-circle" size={17} />
+            <Text style={styles.submitText}>{submitLabel}</Text>
+          </View>
         )}
       </Pressable>
     </View>
@@ -191,30 +198,48 @@ const styles = StyleSheet.create({
   container: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     gap: spacing.md,
     padding: spacing.lg,
+    ...shadows.panel,
   },
   title: {
     color: colors.text,
     fontSize: 18,
-    fontWeight: "800",
+    fontWeight: "900",
+  },
+  titleRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  titleIcon: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryLine,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    height: 34,
+    justifyContent: "center",
+    width: 34,
   },
   segment: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     padding: 3,
   },
   segmentButton: {
     alignItems: "center",
-    borderRadius: 6,
+    borderRadius: radius.md,
     flex: 1,
     paddingVertical: 9,
   },
   segmentActive: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.primarySoft,
   },
   segmentText: {
     color: colors.textMuted,
@@ -225,9 +250,9 @@ const styles = StyleSheet.create({
     color: colors.primary,
   },
   input: {
-    backgroundColor: colors.surfaceMuted,
+    backgroundColor: colors.backgroundRaised,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     color: colors.text,
     minHeight: 46,
@@ -248,7 +273,7 @@ const styles = StyleSheet.create({
   submit: {
     alignItems: "center",
     backgroundColor: colors.primary,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     minHeight: 48,
     justifyContent: "center",
   },
@@ -259,8 +284,13 @@ const styles = StyleSheet.create({
     opacity: 0.75,
   },
   submitText: {
-    color: "#ffffff",
+    color: colors.background,
     fontSize: 15,
     fontWeight: "800",
+  },
+  submitContent: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 7,
   },
 });

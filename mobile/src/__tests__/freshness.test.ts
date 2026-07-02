@@ -16,8 +16,8 @@ describe("buildFreshnessNotice", () => {
         last_snapshot_at: "2026-07-02T00:00:00+08:00",
       }),
     ).toEqual({
-      title: "Cached price",
-      detail: "Last updated 20 min ago. Refresh before opening a paper position.",
+      title: "价格可能滞后",
+      detail: "上次更新约 20 分钟前。建仓前建议刷新。",
     });
   });
 

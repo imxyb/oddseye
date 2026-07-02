@@ -1,8 +1,12 @@
+import { Ionicons } from "@expo/vector-icons";
 import { Pressable, StyleSheet, Text, View } from "react-native";
+import Svg, { Path } from "react-native-svg";
 
 import type { RadarMarket } from "../api/types";
-import { colors, spacing } from "../theme";
+import { qualityTone } from "../brand";
+import { colors, radius, shadows, spacing } from "../theme";
 import { formatCents, formatCurrency, formatDate } from "../utils/format";
+import { categoryLabel, protocolLabel } from "../utils/labels";
 import { buildMarketQuoteMetrics } from "../utils/marketQuote";
 import { yesProbability } from "../utils/probability";
 import { RiskFlags } from "./RiskFlags";
@@ -15,6 +19,13 @@ interface MarketCardProps {
 
 export function MarketCard({ market, onPress }: MarketCardProps) {
   const probability = yesProbability(market);
+  const tone = qualityTone(market.market_quality_score);
+  const scoreStyle = [
+    styles.score,
+    tone === "elite" && styles.scoreElite,
+    tone === "solid" && styles.scoreSolid,
+    tone === "watch" && styles.scoreWatch,
+  ];
 
   return (
     <Pressable
@@ -24,11 +35,13 @@ export function MarketCard({ market, onPress }: MarketCardProps) {
     >
       <View style={styles.header}>
         <View style={styles.metaRow}>
-          <Text style={styles.meta}>{market.protocol}</Text>
-          <Text style={styles.dot}>/</Text>
-          <Text style={styles.meta}>{market.category}</Text>
+          <Ionicons color={colors.textMuted} name="radio" size={13} />
+          <Text style={styles.meta}>{protocolLabel(market.protocol)}</Text>
+          <Text style={styles.dot}>·</Text>
+          <Text style={styles.meta}>{categoryLabel(market.category)}</Text>
         </View>
-        <View style={styles.score}>
+        <View style={scoreStyle}>
+          <Ionicons color={colors.primary} name="sparkles" size={12} />
           <Text style={styles.scoreText}>
             {market.market_quality_score ?? "-"}
           </Text>
@@ -47,15 +60,41 @@ export function MarketCard({ market, onPress }: MarketCardProps) {
           </View>
         ))}
         <View style={styles.priceBox}>
-          <Text style={styles.priceLabel}>IMPLIED</Text>
+          <Text style={styles.priceLabel}>隐含概率</Text>
           <Text style={styles.priceValue}>{formatCents(probability)}</Text>
         </View>
       </View>
 
+      <Svg height={34} viewBox="0 0 260 34" width="100%">
+        <Path
+          d="M2 24C34 24 35 9 64 9C96 9 92 22 124 20C157 19 152 8 188 10C220 11 225 25 258 12"
+          fill="none"
+          stroke={colors.primarySoft}
+          strokeLinecap="round"
+          strokeWidth="10"
+        />
+        <Path
+          d="M2 24C34 24 35 9 64 9C96 9 92 22 124 20C157 19 152 8 188 10C220 11 225 25 258 12"
+          fill="none"
+          stroke={colors.primary}
+          strokeLinecap="round"
+          strokeWidth="3"
+        />
+      </Svg>
+
       <View style={styles.stats}>
-        <Text style={styles.stat}>Liq {formatCurrency(market.liquidity_usd)}</Text>
-        <Text style={styles.stat}>Vol {formatCurrency(market.volume_usd_24h)}</Text>
-        <Text style={styles.stat}>Close {formatDate(market.closes_at)}</Text>
+        <View style={styles.statPill}>
+          <Ionicons color={colors.textMuted} name="water" size={12} />
+          <Text style={styles.stat}>{formatCurrency(market.liquidity_usd)}</Text>
+        </View>
+        <View style={styles.statPill}>
+          <Ionicons color={colors.textMuted} name="pulse" size={12} />
+          <Text style={styles.stat}>{formatCurrency(market.volume_usd_24h)}</Text>
+        </View>
+        <View style={styles.statPill}>
+          <Ionicons color={colors.textMuted} name="time" size={12} />
+          <Text style={styles.stat}>{formatDate(market.closes_at)}</Text>
+        </View>
       </View>
 
       <View style={styles.footer}>
@@ -74,13 +113,15 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     gap: spacing.md,
     padding: spacing.lg,
+    ...shadows.panel,
   },
   pressed: {
-    opacity: 0.72,
+    opacity: 0.78,
+    transform: [{ scale: 0.99 }],
   },
   header: {
     alignItems: "center",
@@ -95,8 +136,7 @@ const styles = StyleSheet.create({
   meta: {
     color: colors.textMuted,
     fontSize: 12,
-    fontWeight: "700",
-    textTransform: "uppercase",
+    fontWeight: "800",
   },
   dot: {
     color: colors.textMuted,
@@ -105,20 +145,36 @@ const styles = StyleSheet.create({
   score: {
     alignItems: "center",
     backgroundColor: colors.primarySoft,
-    borderRadius: 6,
+    borderColor: colors.primaryLine,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 4,
+    minHeight: 26,
     minWidth: 38,
     paddingHorizontal: 8,
-    paddingVertical: 4,
+  },
+  scoreElite: {
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryLine,
+  },
+  scoreSolid: {
+    backgroundColor: colors.infoSoft,
+    borderColor: colors.info,
+  },
+  scoreWatch: {
+    backgroundColor: colors.warningSoft,
+    borderColor: colors.warning,
   },
   scoreText: {
     color: colors.primary,
     fontSize: 12,
-    fontWeight: "800",
+    fontWeight: "900",
   },
   question: {
     color: colors.text,
     fontSize: 17,
-    fontWeight: "700",
+    fontWeight: "800",
     lineHeight: 23,
   },
   priceRow: {
@@ -128,7 +184,9 @@ const styles = StyleSheet.create({
   },
   priceBox: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
     flexBasis: "30%",
     flexGrow: 1,
     gap: 3,
@@ -148,12 +206,23 @@ const styles = StyleSheet.create({
   stats: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 8,
+    gap: spacing.sm,
+  },
+  statPill: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 5,
+    minHeight: 27,
+    paddingHorizontal: 9,
   },
   stat: {
     color: colors.textMuted,
-    fontSize: 12,
-    fontWeight: "600",
+    fontSize: 11,
+    fontWeight: "800",
   },
   footer: {
     gap: spacing.sm,

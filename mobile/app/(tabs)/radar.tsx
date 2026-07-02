@@ -1,3 +1,4 @@
+import { Ionicons } from "@expo/vector-icons";
 import { useQuery } from "@tanstack/react-query";
 import { router } from "expo-router";
 import { useMemo } from "react";
@@ -15,9 +16,11 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getRadarMarkets, radarKeys } from "../../src/api/radar";
 import type { Protocol, RadarMarket } from "../../src/api/types";
+import { shortCountLabel } from "../../src/brand";
 import { MarketCard } from "../../src/components/MarketCard";
 import { useFilterStore } from "../../src/stores/filterStore";
-import { colors, spacing } from "../../src/theme";
+import { colors, radius, shadows, spacing } from "../../src/theme";
+import { categoryLabel, protocolLabel, sortLabel } from "../../src/utils/labels";
 import { radarCategories } from "../../src/utils/radarFilters";
 
 const protocols: Array<Protocol | undefined> = [undefined, "POLYMARKET", "KALSHI"];
@@ -113,6 +116,7 @@ export default function RadarScreen() {
     queryKey: radarKeys.markets(params),
     queryFn: () => getRadarMarkets(params),
   });
+  const markets = marketsQuery.data?.items ?? [];
 
   function openMarket(market: RadarMarket) {
     router.push({
@@ -124,27 +128,45 @@ export default function RadarScreen() {
   return (
     <SafeAreaView edges={["left", "right"]} style={styles.safeArea}>
       <FlatList
-        data={marketsQuery.data?.items ?? []}
+        data={markets}
         keyExtractor={(item) => item.market_id}
         keyboardShouldPersistTaps="handled"
         ListHeaderComponent={
           <View style={styles.header}>
-            <TextInput
-              autoCapitalize="none"
-              autoCorrect={false}
-              onChangeText={setQuery}
-              placeholder="Search markets"
-              placeholderTextColor={colors.textMuted}
-              style={styles.search}
-              value={q}
-            />
+            <View style={styles.hero}>
+              <View>
+                <Text style={styles.kicker}>Live edge</Text>
+                <Text style={styles.heroValue}>
+                  {marketsQuery.isLoading ? "..." : shortCountLabel(markets.length)}
+                </Text>
+                <Text style={styles.heroLabel}>markets on deck</Text>
+              </View>
+              <View style={styles.gauge}>
+                <Text style={styles.gaugeValue}>{minQuality || 65}</Text>
+                <Text style={styles.gaugeLabel}>min Q</Text>
+              </View>
+            </View>
+
+            <View style={styles.searchWrap}>
+              <Ionicons color={colors.textSubtle} name="search" size={17} />
+              <TextInput
+                autoCapitalize="none"
+                autoCorrect={false}
+                onChangeText={setQuery}
+                placeholder="Search market"
+                placeholderTextColor={colors.textSubtle}
+                style={styles.search}
+                value={q}
+              />
+              <Ionicons color={colors.primary} name="filter" size={17} />
+            </View>
 
             <View style={styles.filterGroup}>
               {radarCategories.map((value) => (
                 <FilterButton
                   key={value}
                   active={category === value}
-                  label={value}
+                  label={categoryLabel(value)}
                   onPress={() => setCategory(value)}
                 />
               ))}
@@ -155,7 +177,7 @@ export default function RadarScreen() {
                 <FilterButton
                   key={value ?? "all"}
                   active={protocol === value}
-                  label={value ?? "ALL"}
+                  label={protocolLabel(value)}
                   onPress={() => setProtocol(value)}
                 />
               ))}
@@ -166,7 +188,7 @@ export default function RadarScreen() {
                 <FilterButton
                   key={value}
                   active={sort === value}
-                  label={value}
+                  label={sortLabel(value)}
                   onPress={() => setSort(value)}
                 />
               ))}
@@ -174,33 +196,33 @@ export default function RadarScreen() {
 
             <View style={styles.numberGrid}>
               <NumberFilter
-                label="Min quality"
+                label="质量"
                 onChange={(value) => setMinQuality(value ?? 0)}
                 placeholder="65"
                 value={minQuality}
               />
               <NumberFilter
-                label="Min volume"
+                label="成交"
                 onChange={(value) => setMinVolume(value ?? 0)}
                 placeholder="500"
                 value={minVolume}
               />
               <NumberFilter
-                label="Min liquidity"
+                label="流动性"
                 onChange={(value) => setMinLiquidity(value ?? 0)}
                 placeholder="1000"
                 value={minLiquidity}
               />
               <NumberFilter
-                label="Max spread"
+                label="价差"
                 onChange={(value) => setMaxSpread(value ?? 0.08)}
                 placeholder="0.08"
                 value={maxSpread}
               />
               <NumberFilter
-                label="Closes hrs"
+                label="收盘"
                 onChange={setClosesWithinHours}
-                placeholder="Any"
+                placeholder="不限"
                 value={closesWithinHours}
               />
             </View>
@@ -213,8 +235,8 @@ export default function RadarScreen() {
             ) : (
               <Text style={styles.stateText}>
                 {marketsQuery.error
-                  ? "Could not load radar markets."
-                  : "No markets match the current filters."}
+                  ? "雷达加载失败"
+                  : "当前筛选暂无市场"}
               </Text>
             )}
           </View>
@@ -243,19 +265,78 @@ const styles = StyleSheet.create({
   listContent: {
     gap: spacing.md,
     padding: spacing.lg,
+    paddingBottom: 96,
   },
   header: {
     gap: spacing.md,
   },
-  search: {
+  hero: {
+    alignItems: "flex-end",
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.xl,
     borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    overflow: "hidden",
+    padding: spacing.lg,
+    ...shadows.panel,
+  },
+  kicker: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  heroValue: {
     color: colors.text,
-    fontSize: 15,
-    minHeight: 48,
+    fontSize: 38,
+    fontWeight: "900",
+    lineHeight: 42,
+    marginTop: 4,
+  },
+  heroLabel: {
+    color: colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  gauge: {
+    alignItems: "center",
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryLine,
+    borderRadius: 999,
+    borderWidth: 8,
+    height: 76,
+    justifyContent: "center",
+    width: 76,
+  },
+  gaugeValue: {
+    color: colors.text,
+    fontSize: 20,
+    fontWeight: "900",
+  },
+  gaugeLabel: {
+    color: colors.primary,
+    fontSize: 9,
+    fontWeight: "900",
+    textTransform: "uppercase",
+  },
+  searchWrap: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: spacing.sm,
+    minHeight: 46,
     paddingHorizontal: spacing.md,
+  },
+  search: {
+    color: colors.text,
+    flex: 1,
+    fontSize: 15,
+    minHeight: 44,
   },
   filterGroup: {
     flexDirection: "row",
@@ -264,21 +345,23 @@ const styles = StyleSheet.create({
   },
   filterButton: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 8,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
     paddingHorizontal: spacing.md,
     paddingVertical: 9,
   },
   filterButtonActive: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.primarySoft,
+    borderColor: colors.primaryLine,
   },
   filterText: {
     color: colors.textMuted,
     fontSize: 12,
     fontWeight: "800",
-    textTransform: "uppercase",
   },
   filterTextActive: {
-    color: "#ffffff",
+    color: colors.primary,
   },
   numberGrid: {
     flexDirection: "row",
@@ -295,12 +378,11 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 11,
     fontWeight: "700",
-    textTransform: "uppercase",
   },
   numberInput: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     color: colors.text,
     minHeight: 42,

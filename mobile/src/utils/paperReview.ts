@@ -4,6 +4,7 @@ import type {
   PaperReviewTrade,
 } from "../api/types";
 import { formatCents, formatCurrency, formatDate, formatPercent } from "./format";
+import { categoryLabel } from "./labels";
 
 export interface ReviewMetric {
   label: string;
@@ -36,11 +37,11 @@ export function buildReviewRollupSections(
 ): ReviewRollupSection[] {
   return [
     {
-      title: "Strategy review",
+      title: "策略复盘",
       items: review.strategy_stats.map(buildRollupItem),
     },
     {
-      title: "Category review",
+      title: "分类复盘",
       items: review.category_stats.map(buildRollupItem),
     },
   ];
@@ -50,7 +51,7 @@ export function buildTradeTraceRows(trades: PaperReviewTrade[]): TradeTraceRow[]
   return trades.slice(0, 8).map((trade) => ({
     id: trade.fill_id,
     title: trade.question,
-    subtitle: [trade.side, trade.category, `Qty ${formatQuantity(trade.quantity)}`]
+    subtitle: [trade.side, categoryLabel(trade.category), `${formatQuantity(trade.quantity)} 份`]
       .filter(Boolean)
       .join(" · "),
     price: formatCents(trade.price),
@@ -58,7 +59,7 @@ export function buildTradeTraceRows(trades: PaperReviewTrade[]): TradeTraceRow[]
     snapshot: trade.snapshot_id === null || trade.snapshot_id === undefined
       ? "-"
       : String(trade.snapshot_id),
-    strategy: trade.strategy_code ?? "manual",
+    strategy: trade.strategy_code ?? "手动",
     timestamp: formatDate(trade.created_at),
   }));
 }
@@ -67,11 +68,11 @@ function buildRollupItem(rollup: PaperReviewRollup): ReviewRollupItem {
   return {
     key: rollup.key,
     metrics: [
-      { label: "Trades", value: String(rollup.total_trades) },
-      { label: "PnL", value: formatCurrency(rollup.realized_pnl) },
-      { label: "Win", value: formatPercent(rollup.win_rate) },
-      { label: "Edge", value: formatPercent(rollup.average_edge) },
-      { label: "Drawdown", value: formatCurrency(rollup.max_drawdown) },
+      { label: "交易", value: String(rollup.total_trades) },
+      { label: "盈亏", value: formatCurrency(rollup.realized_pnl) },
+      { label: "胜率", value: formatPercent(rollup.win_rate) },
+      { label: "优势", value: formatPercent(rollup.average_edge) },
+      { label: "回撤", value: formatCurrency(rollup.max_drawdown) },
     ],
   };
 }

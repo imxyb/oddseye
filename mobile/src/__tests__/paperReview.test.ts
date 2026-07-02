@@ -56,15 +56,15 @@ describe("paper review presentation", () => {
     const sections = buildReviewRollupSections(review);
 
     expect(sections.map((section) => section.title)).toEqual([
-      "Strategy review",
-      "Category review",
+      "策略复盘",
+      "分类复盘",
     ]);
     expect(sections[0]?.items[0]?.metrics).toEqual([
-      { label: "Trades", value: "4" },
-      { label: "PnL", value: "$8.00" },
-      { label: "Win", value: "50%" },
-      { label: "Edge", value: "10%" },
-      { label: "Drawdown", value: "$5.00" },
+      { label: "交易", value: "4" },
+      { label: "盈亏", value: "$8.00" },
+      { label: "胜率", value: "50%" },
+      { label: "优势", value: "10%" },
+      { label: "回撤", value: "$5.00" },
     ]);
   });
 

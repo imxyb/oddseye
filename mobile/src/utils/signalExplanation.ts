@@ -1,3 +1,5 @@
+import { formatCodes, reasonCodeLabel, riskCodeLabel } from "./labels";
+
 export interface SignalExplanationSource {
   reason_codes?: string[] | null;
   risk_flags?: string[] | null;
@@ -13,10 +15,10 @@ export function buildSignalExplanationRows(
 ): SignalExplanationRow[] {
   const rows: SignalExplanationRow[] = [];
   if (signal.reason_codes?.length) {
-    rows.push({ label: "Reason", value: signal.reason_codes.join(", ") });
+    rows.push({ label: "依据", value: formatCodes(signal.reason_codes, reasonCodeLabel) });
   }
   if (signal.risk_flags?.length) {
-    rows.push({ label: "Risk", value: signal.risk_flags.join(", ") });
+    rows.push({ label: "风险", value: formatCodes(signal.risk_flags, riskCodeLabel) });
   }
   return rows;
 }

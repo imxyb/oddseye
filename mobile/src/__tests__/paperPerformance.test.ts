@@ -15,14 +15,14 @@ describe("buildPerformanceMetrics", () => {
     });
 
     expect(metrics.map((metric) => metric.label)).toEqual([
-      "Equity",
-      "Cash",
-      "Unrealized",
-      "Realized",
-      "Total PnL",
-      "Win rate",
-      "Drawdown",
-      "Trades",
+      "权益",
+      "现金",
+      "浮盈",
+      "已实现",
+      "总盈亏",
+      "胜率",
+      "回撤",
+      "交易",
     ]);
     expect(metrics.map((metric) => metric.value)).toContain("$100.00");
     expect(metrics.map((metric) => metric.value)).toContain("8%");

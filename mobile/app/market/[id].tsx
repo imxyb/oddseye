@@ -24,14 +24,24 @@ import { PositionCard } from "../../src/components/PositionCard";
 import { ProbabilityChart } from "../../src/components/ProbabilityChart";
 import { RiskFlags } from "../../src/components/RiskFlags";
 import { SignalBadge } from "../../src/components/SignalBadge";
-import { colors, spacing } from "../../src/theme";
+import { colors, radius, shadows, spacing } from "../../src/theme";
 import { buildFreshnessNotice } from "../../src/utils/freshness";
+import { friendlyErrorMessage } from "../../src/utils/errors";
 import {
   formatCents,
   formatCurrency,
   formatDate,
   formatPercent,
 } from "../../src/utils/format";
+import {
+  categoryLabel,
+  protocolLabel,
+  qualityComponentLabel,
+  reasonCodeLabel,
+  riskCodeLabel,
+  sideLabel,
+  statusLabel,
+} from "../../src/utils/labels";
 import { midpoint, yesProbability } from "../../src/utils/probability";
 
 export default function MarketDetailScreen() {
@@ -88,7 +98,7 @@ export default function MarketDetailScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.stateText}>
-          {marketQuery.error ? "Could not load market." : "Market not found."}
+          {marketQuery.error ? "市场加载失败" : "未找到市场"}
         </Text>
       </View>
     );
@@ -99,14 +109,14 @@ export default function MarketDetailScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.header}>
           <View style={styles.metaRow}>
-            <Text style={styles.meta}>{market.protocol}</Text>
-            <Text style={styles.meta}>{market.category}</Text>
-            <Text style={styles.meta}>Quality {market.market_quality_score ?? "-"}</Text>
+            <Text style={styles.meta}>{protocolLabel(market.protocol)}</Text>
+            <Text style={styles.meta}>{categoryLabel(market.category)}</Text>
+            <Text style={styles.meta}>质量 {market.market_quality_score ?? "-"}</Text>
           </View>
           <Text style={styles.title}>{market.question}</Text>
           <View style={styles.metaRow}>
-            <Text style={styles.subtle}>Close {formatDate(market.closes_at)}</Text>
-            <Text style={styles.subtle}>Status {market.status}</Text>
+            <Text style={styles.subtle}>收盘 {formatDate(market.closes_at)}</Text>
+            <Text style={styles.subtle}>状态 {statusLabel(market.status)}</Text>
           </View>
           <View style={styles.actionRow}>
             <SignalBadge
@@ -132,16 +142,14 @@ export default function MarketDetailScreen() {
                   size={16}
                 />
               )}
-              <Text style={styles.refreshText}>Refresh market</Text>
+              <Text style={styles.refreshText}>刷新</Text>
             </Pressable>
           </View>
         </View>
 
         {refreshMutation.error ? (
           <Text style={styles.error}>
-            {refreshMutation.error instanceof Error
-              ? refreshMutation.error.message
-              : "Could not refresh market."}
+            {friendlyErrorMessage(refreshMutation.error, "刷新失败")}
           </Text>
         ) : null}
 
@@ -154,27 +162,27 @@ export default function MarketDetailScreen() {
 
         <View style={styles.priceGrid}>
           <View style={styles.metric}>
-            <Text style={styles.metricLabel}>YES bid</Text>
+            <Text style={styles.metricLabel}>{sideLabel("YES")} 买价</Text>
             <Text style={styles.metricValue}>{formatCents(yes?.bid)}</Text>
           </View>
           <View style={styles.metric}>
-            <Text style={styles.metricLabel}>YES ask</Text>
+            <Text style={styles.metricLabel}>{sideLabel("YES")} 卖价</Text>
             <Text style={styles.metricValue}>{formatCents(yes?.ask)}</Text>
           </View>
           <View style={styles.metric}>
-            <Text style={styles.metricLabel}>NO bid</Text>
+            <Text style={styles.metricLabel}>{sideLabel("NO")} 买价</Text>
             <Text style={styles.metricValue}>{formatCents(no?.bid)}</Text>
           </View>
           <View style={styles.metric}>
-            <Text style={styles.metricLabel}>NO ask</Text>
+            <Text style={styles.metricLabel}>{sideLabel("NO")} 卖价</Text>
             <Text style={styles.metricValue}>{formatCents(no?.ask)}</Text>
           </View>
           <View style={styles.metric}>
-            <Text style={styles.metricLabel}>Implied</Text>
+            <Text style={styles.metricLabel}>隐含概率</Text>
             <Text style={styles.metricValue}>{formatCents(yesProbability(market))}</Text>
           </View>
           <View style={styles.metric}>
-            <Text style={styles.metricLabel}>Signal edge</Text>
+            <Text style={styles.metricLabel}>信号优势</Text>
             <Text style={styles.metricValue}>
               {formatPercent(market.latest_signal?.edge)}
             </Text>
@@ -182,20 +190,29 @@ export default function MarketDetailScreen() {
         </View>
 
         <View style={styles.marketStats}>
-          <Text style={styles.stat}>Liquidity {formatCurrency(market.liquidity_usd)}</Text>
-          <Text style={styles.stat}>24h volume {formatCurrency(market.volume_usd_24h)}</Text>
-          <Text style={styles.stat}>OI {formatCurrency(market.open_interest_usd)}</Text>
+          <View style={styles.statPill}>
+            <Ionicons color={colors.textMuted} name="water" size={12} />
+            <Text style={styles.stat}>{formatCurrency(market.liquidity_usd)}</Text>
+          </View>
+          <View style={styles.statPill}>
+            <Ionicons color={colors.textMuted} name="pulse" size={12} />
+            <Text style={styles.stat}>{formatCurrency(market.volume_usd_24h)}</Text>
+          </View>
+          <View style={styles.statPill}>
+            <Ionicons color={colors.textMuted} name="layers" size={12} />
+            <Text style={styles.stat}>{formatCurrency(market.open_interest_usd)}</Text>
+          </View>
         </View>
 
         <RiskFlags market={market} />
 
         {market.quality ? (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Quality</Text>
+            <Text style={styles.sectionTitle}>质量拆解</Text>
             <View style={styles.qualityGrid}>
               {Object.entries(market.quality.components).map(([key, value]) => (
                 <View key={key} style={styles.qualityMetric}>
-                  <Text style={styles.metricLabel}>{key.replace(/_/g, " ")}</Text>
+                  <Text style={styles.metricLabel}>{qualityComponentLabel(key)}</Text>
                   <Text style={styles.metricValue}>{Math.round(value)}</Text>
                 </View>
               ))}
@@ -203,12 +220,12 @@ export default function MarketDetailScreen() {
             <View style={styles.reasonRow}>
               {market.quality.reason_codes.map((code) => (
                 <Text key={code} style={styles.reasonPill}>
-                  {code.replace(/_/g, " ")}
+                  {reasonCodeLabel(code)}
                 </Text>
               ))}
               {market.quality.risk_flags.map((flag) => (
                 <Text key={flag} style={[styles.reasonPill, styles.riskPill]}>
-                  {flag.replace(/_/g, " ")}
+                  {riskCodeLabel(flag)}
                 </Text>
               ))}
             </View>
@@ -216,7 +233,7 @@ export default function MarketDetailScreen() {
         ) : null}
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Probability</Text>
+          <Text style={styles.sectionTitle}>概率走势</Text>
           {barsQuery.isLoading ? (
             <View style={styles.chartLoading}>
               <ActivityIndicator color={colors.primary} />
@@ -228,7 +245,7 @@ export default function MarketDetailScreen() {
 
         {market.current_position ? (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Current position</Text>
+            <Text style={styles.sectionTitle}>当前持仓</Text>
             <PositionCard position={market.current_position} />
           </View>
         ) : null}
@@ -240,7 +257,7 @@ export default function MarketDetailScreen() {
         />
 
         {orderMutation.isSuccess ? (
-          <Text style={styles.success}>Paper order submitted.</Text>
+          <Text style={styles.success}>订单已提交</Text>
         ) : null}
       </ScrollView>
     </SafeAreaView>
@@ -255,6 +272,7 @@ const styles = StyleSheet.create({
   content: {
     gap: spacing.lg,
     padding: spacing.lg,
+    paddingBottom: spacing.xxl,
   },
   center: {
     alignItems: "center",
@@ -270,7 +288,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   header: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    borderWidth: StyleSheet.hairlineWidth,
     gap: spacing.md,
+    padding: spacing.lg,
+    ...shadows.panel,
   },
   actionRow: {
     alignItems: "center",
@@ -285,13 +309,14 @@ const styles = StyleSheet.create({
   },
   meta: {
     backgroundColor: colors.surfaceMuted,
-    borderRadius: 6,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
     color: colors.textMuted,
     fontSize: 12,
     fontWeight: "800",
     paddingHorizontal: 8,
     paddingVertical: 5,
-    textTransform: "uppercase",
   },
   title: {
     color: colors.text,
@@ -306,15 +331,16 @@ const styles = StyleSheet.create({
   },
   refreshButton: {
     alignItems: "center",
-    backgroundColor: colors.surface,
+    backgroundColor: colors.primarySoft,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: 999,
     borderWidth: StyleSheet.hairlineWidth,
     flexDirection: "row",
     gap: 6,
     minHeight: 34,
     paddingHorizontal: 10,
     paddingVertical: 7,
+    ...shadows.panel,
   },
   refreshText: {
     color: colors.primary,
@@ -335,7 +361,7 @@ const styles = StyleSheet.create({
   warning: {
     backgroundColor: colors.warningSoft,
     borderColor: colors.warning,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     gap: 4,
     padding: spacing.md,
@@ -359,19 +385,19 @@ const styles = StyleSheet.create({
   metric: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     flexBasis: "31%",
     flexGrow: 1,
     gap: 4,
     minWidth: 104,
     padding: spacing.md,
+    ...shadows.panel,
   },
   metricLabel: {
     color: colors.textMuted,
     fontSize: 11,
     fontWeight: "700",
-    textTransform: "uppercase",
   },
   metricValue: {
     color: colors.text,
@@ -383,10 +409,21 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: spacing.sm,
   },
+  statPill: {
+    alignItems: "center",
+    backgroundColor: colors.surfaceMuted,
+    borderColor: colors.border,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 5,
+    minHeight: 28,
+    paddingHorizontal: 9,
+  },
   stat: {
     color: colors.textMuted,
-    fontSize: 13,
-    fontWeight: "700",
+    fontSize: 11,
+    fontWeight: "800",
   },
   section: {
     gap: spacing.md,
@@ -404,13 +441,14 @@ const styles = StyleSheet.create({
   qualityMetric: {
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     flexBasis: "31%",
     flexGrow: 1,
     gap: 4,
     minWidth: 104,
     padding: spacing.md,
+    ...shadows.panel,
   },
   reasonRow: {
     flexDirection: "row",
@@ -419,27 +457,30 @@ const styles = StyleSheet.create({
   },
   reasonPill: {
     backgroundColor: colors.successSoft,
+    borderColor: colors.success,
     borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
     color: colors.success,
     fontSize: 11,
     fontWeight: "800",
     overflow: "hidden",
     paddingHorizontal: 9,
     paddingVertical: 6,
-    textTransform: "uppercase",
   },
   riskPill: {
     backgroundColor: colors.warningSoft,
+    borderColor: colors.warning,
     color: colors.warning,
   },
   chartLoading: {
     alignItems: "center",
     backgroundColor: colors.surface,
     borderColor: colors.border,
-    borderRadius: 8,
+    borderRadius: radius.lg,
     borderWidth: StyleSheet.hairlineWidth,
     minHeight: 210,
     justifyContent: "center",
+    ...shadows.panel,
   },
   success: {
     color: colors.success,

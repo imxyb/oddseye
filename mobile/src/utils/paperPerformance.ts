@@ -10,13 +10,13 @@ export function buildPerformanceMetrics(performance: PaperPerformance): Performa
   const totalPnl = performance.realized_pnl + performance.unrealized_pnl;
 
   return [
-    { label: "Equity", value: formatCurrency(performance.equity) },
-    { label: "Cash", value: formatCurrency(performance.cash) },
-    { label: "Unrealized", value: formatCurrency(performance.unrealized_pnl) },
-    { label: "Realized", value: formatCurrency(performance.realized_pnl) },
-    { label: "Total PnL", value: formatCurrency(totalPnl) },
-    { label: "Win rate", value: formatPercent(performance.win_rate) },
-    { label: "Drawdown", value: formatPercent(performance.max_drawdown) },
-    { label: "Trades", value: String(performance.total_trades) },
+    { label: "权益", value: formatCurrency(performance.equity) },
+    { label: "现金", value: formatCurrency(performance.cash) },
+    { label: "浮盈", value: formatCurrency(performance.unrealized_pnl) },
+    { label: "已实现", value: formatCurrency(performance.realized_pnl) },
+    { label: "总盈亏", value: formatCurrency(totalPnl) },
+    { label: "胜率", value: formatPercent(performance.win_rate) },
+    { label: "回撤", value: formatPercent(performance.max_drawdown) },
+    { label: "交易", value: String(performance.total_trades) },
   ];
 }

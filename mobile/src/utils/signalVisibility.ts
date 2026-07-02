@@ -9,12 +9,12 @@ export type SignalFilterKey = typeof defaultSignalFilterKey | Extract<
 >;
 
 export const signalFilters: Array<{ key: SignalFilterKey; label: string }> = [
-  { key: defaultSignalFilterKey, label: "EDGE" },
-  { key: "BUY", label: "BUY" },
-  { key: "HOLD", label: "HOLD" },
-  { key: "OBSERVE", label: "OBSERVE" },
-  { key: "EXIT", label: "EXIT" },
-  { key: "IGNORE", label: "IGNORE" },
+  { key: defaultSignalFilterKey, label: "优势" },
+  { key: "BUY", label: "买入" },
+  { key: "HOLD", label: "持有" },
+  { key: "OBSERVE", label: "观察" },
+  { key: "EXIT", label: "退出" },
+  { key: "IGNORE", label: "忽略" },
 ];
 
 export function signalFilterParams(key: SignalFilterKey): {

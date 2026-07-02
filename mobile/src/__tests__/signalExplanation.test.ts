@@ -10,8 +10,8 @@ describe("buildSignalExplanationRows", () => {
     });
 
     expect(rows).toEqual([
-      { label: "Reason", value: "MODEL_EDGE_POSITIVE, BUY_YES_EDGE" },
-      { label: "Risk", value: "QUALITY_BELOW_GATE" },
+      { label: "依据", value: "模型优势为正 · YES 结果有优势" },
+      { label: "风险", value: "质量偏低" },
     ]);
   });
 });

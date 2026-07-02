@@ -7,20 +7,20 @@ export interface FreshnessNotice {
 
 function formatAge(ageSeconds?: number | null): string {
   if (ageSeconds === undefined || ageSeconds === null) {
-    return "unknown";
+    return "未知";
   }
 
   if (ageSeconds < 60) {
-    return "<1 min";
+    return "不到 1 分钟";
   }
 
   const minutes = Math.round(ageSeconds / 60);
   if (minutes < 60) {
-    return `${minutes} min`;
+    return `${minutes} 分钟`;
   }
 
   const hours = Math.round(minutes / 60);
-  return `${hours} hr`;
+  return `${hours} 小时`;
 }
 
 export function buildFreshnessNotice(freshness?: Freshness | null): FreshnessNotice | null {
@@ -29,7 +29,7 @@ export function buildFreshnessNotice(freshness?: Freshness | null): FreshnessNot
   }
 
   return {
-    title: "Cached price",
-    detail: `Last updated ${formatAge(freshness.age_seconds)} ago. Refresh before opening a paper position.`,
+    title: "价格可能滞后",
+    detail: `上次更新约 ${formatAge(freshness.age_seconds)}前。建仓前建议刷新。`,
   };
 }

@@ -12,9 +12,9 @@ describe("buildSettingsInfoRows", () => {
     });
 
     expect(rows).toEqual([
-      { label: "Base URL", value: "https://oddseye.fun" },
-      { label: "Radar refresh", value: "Pull to refresh; workers update hot markets about every 2 min" },
-      { label: "Signal refresh", value: "Workers recompute signals about every 15 min" },
+      { label: "API 地址", value: "https://oddseye.fun" },
+      { label: "雷达刷新", value: "下拉刷新；热门市场约每 2 分钟更新" },
+      { label: "信号刷新", value: "策略信号约每 15 分钟重算" },
     ]);
   });
 });

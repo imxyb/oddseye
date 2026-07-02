@@ -19,14 +19,14 @@ export function buildSettingsInfoRows(
   );
 
   return [
-    { label: "Base URL", value: apiBaseUrl },
+    { label: "API 地址", value: apiBaseUrl },
     {
-      label: "Radar refresh",
-      value: `Pull to refresh; workers update hot markets about every ${hotMarketCadence}`,
+      label: "雷达刷新",
+      value: `下拉刷新；热门市场约每 ${hotMarketCadence}更新`,
     },
     {
-      label: "Signal refresh",
-      value: `Workers recompute signals about every ${signalCadence}`,
+      label: "信号刷新",
+      value: `策略信号约每 ${signalCadence}重算`,
     },
   ];
 }
@@ -36,10 +36,10 @@ function formatCadence(seconds: number | undefined, fallback: string): string {
     return fallback;
   }
   if (seconds % 3600 === 0) {
-    return `${seconds / 3600} hr`;
+    return `${seconds / 3600} 小时`;
   }
   if (seconds % 60 === 0) {
-    return `${seconds / 60} min`;
+    return `${seconds / 60} 分钟`;
   }
-  return `${seconds} sec`;
+  return `${seconds} 秒`;
 }

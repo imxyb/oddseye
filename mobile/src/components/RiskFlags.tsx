@@ -1,7 +1,9 @@
+import { Ionicons } from "@expo/vector-icons";
 import { StyleSheet, Text, View } from "react-native";
 
 import type { RadarMarket } from "../api/types";
 import { colors } from "../theme";
+import { riskCodeLabel } from "../utils/labels";
 import { maxSpread } from "../utils/probability";
 
 interface RiskFlagsProps {
@@ -10,12 +12,6 @@ interface RiskFlagsProps {
     "liquidity_usd" | "closes_at" | "risk_flags" | "outcomes"
   >;
   flags?: string[];
-}
-
-function prettify(flag: string): string {
-  return flag
-    .replace(/[_-]+/g, " ")
-    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 function deriveFlags(market?: RiskFlagsProps["market"], flags: string[] = []) {
@@ -54,7 +50,8 @@ export function RiskFlags({ market, flags = [] }: RiskFlagsProps) {
     <View style={styles.wrap}>
       {visibleFlags.map((flag) => (
         <View key={flag} style={styles.flag}>
-          <Text style={styles.flagText}>{prettify(flag)}</Text>
+          <Ionicons color={colors.warning} name="warning" size={12} />
+          <Text style={styles.flagText}>{riskCodeLabel(flag)}</Text>
         </View>
       ))}
     </View>
@@ -68,10 +65,15 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   flag: {
+    alignItems: "center",
     backgroundColor: colors.warningSoft,
-    borderRadius: 6,
+    borderColor: colors.warning,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    flexDirection: "row",
+    gap: 5,
+    minHeight: 26,
     paddingHorizontal: 8,
-    paddingVertical: 4,
   },
   flagText: {
     color: colors.warning,
