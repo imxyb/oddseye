@@ -319,7 +319,7 @@ def verify_production(
     signal_count = _require_items(signals, "signals")
     checks.append(VerificationCheck("signals", True, f"{signal_count} signals returned"))
 
-    crypto_signals = production_client.request("GET", "/signals?category=crypto&limit=20", token=token)
+    crypto_signals = production_client.request("GET", "/signals?category=crypto&limit=100", token=token)
     crypto_signal = _require_crypto_threshold_signal(crypto_signals)
     checks.append(
         VerificationCheck(

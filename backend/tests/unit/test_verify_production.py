@@ -183,7 +183,7 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
             "freshness": _freshness(),
         },
         ("GET", "/signals?limit=3"): {"items": [{"signal_id": "signal-1"}]},
-        ("GET", "/signals?category=crypto&limit=20"): {
+        ("GET", "/signals?category=crypto&limit=100"): {
             "items": [
                 {
                     "signal_id": "signal-crypto-threshold",
@@ -490,7 +490,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ),
         ("GET", "/markets/market-1/bars?range=7d&resolution=hour1", "token-123", None),
         ("GET", "/signals?limit=3", "token-123", None),
-        ("GET", "/signals?category=crypto&limit=20", "token-123", None),
+        ("GET", "/signals?category=crypto&limit=100", "token-123", None),
         ("GET", "/signals?category=economics&limit=5", "token-123", None),
         ("GET", "/signals?action=BUY&limit=5", "token-123", None),
         ("GET", "/signals?action=OBSERVE&limit=5", "token-123", None),
@@ -798,7 +798,7 @@ def test_verify_production_rejects_unfilled_signal_paper_order() -> None:
 
 def test_verify_production_rejects_missing_crypto_threshold_signal() -> None:
     responses = _successful_responses()
-    responses[("GET", "/signals?category=crypto&limit=20")] = {
+    responses[("GET", "/signals?category=crypto&limit=100")] = {
         "items": [
             {
                 "signal_id": "signal-other",
@@ -823,7 +823,7 @@ def test_verify_production_rejects_missing_crypto_threshold_signal() -> None:
 
 def test_verify_production_skips_invalid_crypto_threshold_candidates() -> None:
     responses = _successful_responses()
-    responses[("GET", "/signals?category=crypto&limit=20")] = {
+    responses[("GET", "/signals?category=crypto&limit=100")] = {
         "items": [
             {
                 "signal_id": "signal-parser-failed",
