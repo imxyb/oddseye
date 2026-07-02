@@ -48,6 +48,7 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
     return {
         ("GET", "/health"): {"status": "ok"},
         ("POST", "/auth/login"): {"access_token": "token-123"},
+        ("GET", "/auth/me"): {"username": "admin", "role": "admin"},
         ("GET", "/radar/markets?limit=3"): {"items": [{"market_id": "market-1"}]},
         ("GET", "/radar/markets?category=crypto&sort=quality&limit=5"): {
             "items": [
@@ -252,6 +253,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
     assert [check.name for check in checks] == [
         "health",
         "login",
+        "auth_me",
         "radar",
         "radar_sort_quality",
         "radar_sort_volume",
@@ -277,6 +279,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
     assert client.calls == [
         ("GET", "/health", None, None),
         ("POST", "/auth/login", None, {"username": "admin", "password": "secret"}),
+        ("GET", "/auth/me", "token-123", None),
         ("GET", "/radar/markets?limit=3", "token-123", None),
         ("GET", "/radar/markets?category=crypto&sort=quality&limit=5", "token-123", None),
         ("GET", "/radar/markets?category=crypto&sort=volume&limit=5", "token-123", None),
@@ -332,6 +335,20 @@ def test_verify_production_rejects_empty_live_signal_response() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="signals"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_login_token_without_config_user_identity() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/auth/me")] = {"username": "other", "role": "admin"}
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="auth_me"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",

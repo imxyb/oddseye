@@ -142,6 +142,10 @@ def verify_production(
     _require(isinstance(token, str) and token, "login", "missing access_token")
     checks.append(VerificationCheck("login", True, "token issued"))
 
+    current_user = production_client.request("GET", "/auth/me", token=token)
+    _require_authenticated_user(current_user, expected_username=username)
+    checks.append(VerificationCheck("auth_me", True, f"{username} token resolved to configured user"))
+
     radar = production_client.request("GET", "/radar/markets?limit=3", token=token)
     radar_count = _require_items(radar, "radar")
     checks.append(VerificationCheck("radar", True, f"{radar_count} markets returned"))
@@ -374,6 +378,13 @@ def _require_items(payload: dict[str, Any], name: str) -> int:
     _require(isinstance(items, list), name, "missing items list")
     _require(len(items) > 0, name, "expected live items")
     return len(items)
+
+
+def _require_authenticated_user(payload: dict[str, Any], *, expected_username: str) -> None:
+    username = payload.get("username")
+    role = payload.get("role")
+    _require(username == expected_username, "auth_me", "token resolved to unexpected username")
+    _require(isinstance(role, str) and role, "auth_me", "token resolved without role")
 
 
 def _first_market_id(payload: dict[str, Any]) -> str:

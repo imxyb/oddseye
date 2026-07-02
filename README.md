@@ -120,11 +120,12 @@ printf 'EXPO_PUBLIC_API_BASE_URL=https://oddseye.fun\n' > .env
 ## Production Verification
 
 After migrations and service startup, run the production verifier from the built
-API image. It checks health, login, Radar live data, Crypto and Macro/Economics
-category data, documented Radar sort dimensions, market detail quotes, quality
-score explanations, chart bars, active `crypto_threshold_v1` crypto threshold
-signals, usage counters, recent ingestion job runs, paper performance metrics,
-paper positions, and paper trade traceability in one repeatable command:
+API image. It checks health, login, authenticated `/auth/me` identity, Radar live
+data, Crypto and Macro/Economics category data, documented Radar sort
+dimensions, market detail quotes, quality score explanations, chart bars, active
+`crypto_threshold_v1` crypto threshold signals, usage counters, recent ingestion
+job runs, paper performance metrics, paper positions, and paper trade
+traceability in one repeatable command:
 
 The verifier creates tiny paper BUY orders through both the manual order API and
 the signal order API, then sells the manual position back through the manual
@@ -162,6 +163,10 @@ TOKEN="$(
 
 curl -fsS "https://oddseye.fun/radar/markets?limit=3" \
   -H "Authorization: Bearer $TOKEN"
+
+curl -fsS "https://oddseye.fun/auth/me" \
+  -H "Authorization: Bearer $TOKEN" \
+  | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["username"]=="admin"; assert d["role"]; print("auth me ok")'
 
 curl -fsS "https://oddseye.fun/radar/markets?category=crypto&sort=quality&limit=5" \
   -H "Authorization: Bearer $TOKEN"
@@ -230,6 +235,8 @@ Expected production state:
 
 - containers `api`, `worker-ingest`, `worker-signal`, `worker-paper`,
   `worker-resolution`, and `worker-usage` are running.
+- `/auth/login` issues a bearer token for the configured admin user, and
+  `/auth/me` resolves that token back to the configured username and role.
 - `api_usage_ledger` records Codex calls with status, duration, and kind.
 - `/settings/usage` reports daily/monthly request counters plus recent successful
   `discover_events`, `sync_*_markets`, and `compute_quality` job runs.
