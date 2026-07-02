@@ -146,6 +146,8 @@ export interface Signal {
   model_probability?: number | null;
   executable_price?: number | null;
   rationale?: string | null;
+  reason_codes?: string[];
+  risk_flags?: string[];
   created_at?: string | null;
 }
 

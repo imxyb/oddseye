@@ -17,6 +17,7 @@ import type { Signal, SignalAction } from "../../src/api/types";
 import { SignalBadge } from "../../src/components/SignalBadge";
 import { colors, spacing } from "../../src/theme";
 import { formatCents, formatPercent } from "../../src/utils/format";
+import { buildSignalExplanationRows } from "../../src/utils/signalExplanation";
 
 const signalActions: Array<SignalAction | undefined> = [
   undefined,
@@ -50,6 +51,8 @@ function ActionFilter({
 }
 
 function SignalCard({ signal }: { signal: Signal }) {
+  const explanationRows = buildSignalExplanationRows(signal);
+
   return (
     <Pressable
       accessibilityRole="button"
@@ -93,6 +96,19 @@ function SignalCard({ signal }: { signal: Signal }) {
         <Text style={styles.rationale} numberOfLines={3}>
           {signal.rationale}
         </Text>
+      ) : null}
+
+      {explanationRows.length > 0 ? (
+        <View style={styles.explanations}>
+          {explanationRows.map((row) => (
+            <View key={row.label} style={styles.explanationRow}>
+              <Text style={styles.explanationLabel}>{row.label}</Text>
+              <Text style={styles.explanationValue} numberOfLines={2}>
+                {row.value}
+              </Text>
+            </View>
+          ))}
+        </View>
       ) : null}
 
       <Pressable
@@ -258,6 +274,27 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 13,
     lineHeight: 19,
+  },
+  explanations: {
+    gap: spacing.xs,
+  },
+  explanationRow: {
+    backgroundColor: colors.surfaceMuted,
+    borderRadius: 8,
+    gap: 3,
+    padding: spacing.md,
+  },
+  explanationLabel: {
+    color: colors.textMuted,
+    fontSize: 11,
+    fontWeight: "700",
+    textTransform: "uppercase",
+  },
+  explanationValue: {
+    color: colors.text,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
   },
   orderButton: {
     alignItems: "center",
