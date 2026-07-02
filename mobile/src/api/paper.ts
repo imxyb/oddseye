@@ -4,11 +4,13 @@ import type {
   PaperOrderRequest,
   PaperPerformance,
   PaperPositionsResponse,
+  PaperReviewResponse,
 } from "./types";
 
 export const paperKeys = {
   positions: ["paper", "positions"] as const,
   performance: ["paper", "performance"] as const,
+  review: ["paper", "review"] as const,
 };
 
 export function createPaperOrder(input: PaperOrderRequest) {
@@ -24,4 +26,8 @@ export function getPaperPositions() {
 
 export function getPaperPerformance() {
   return apiFetch<PaperPerformance>("/paper/performance");
+}
+
+export function getPaperReview() {
+  return apiFetch<PaperReviewResponse>("/paper/review");
 }

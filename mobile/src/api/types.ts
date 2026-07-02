@@ -204,3 +204,39 @@ export interface PaperPerformance {
   max_drawdown: number;
   total_trades: number;
 }
+
+export interface PaperReviewRollup {
+  key: string;
+  total_trades: number;
+  total_notional: number;
+  average_edge?: number | null;
+  realized_pnl: number;
+  win_rate: number;
+  max_drawdown: number;
+}
+
+export interface PaperReviewTrade {
+  fill_id: string;
+  order_id: string;
+  signal_id?: string | null;
+  snapshot_id?: number | string | null;
+  market_id: string;
+  question: string;
+  category?: string | null;
+  strategy_code?: string | null;
+  side: OrderSide | string;
+  outcome_index: number;
+  price: number;
+  quantity: number;
+  notional: number;
+  fee: number;
+  edge?: number | null;
+  market_quality_score?: number | null;
+  created_at: string;
+}
+
+export interface PaperReviewResponse {
+  strategy_stats: PaperReviewRollup[];
+  category_stats: PaperReviewRollup[];
+  trades: PaperReviewTrade[];
+}
