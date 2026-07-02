@@ -42,7 +42,7 @@ class CodexSection(BaseModel):
 
 class RadarSection(BaseModel):
     enabled_categories: list[str] = Field(default_factory=lambda: ["crypto", "economics", "finance"])
-    protocols: list[str] = Field(default_factory=lambda: ["POLYMARKET", "KALSHI"])
+    protocols: list[str] = Field(default_factory=lambda: ["POLYMARKET"])
     min_liquidity_usd: float = 1_000
     min_volume_usd_24h: float = 500
     max_spread_ct: float = 0.08

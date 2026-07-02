@@ -507,7 +507,7 @@ async def _risk_error(
             return "market_exposure_exceeds_5pct_equity"
         if market.closes_at is not None and _aware(market.closes_at) <= utcnow() + timedelta(minutes=30):
             return "market_closing_soon"
-    if order_input.enforce_auto_gates and latest is not None:
+    if order_input.side.upper() == "BUY" and order_input.enforce_auto_gates and latest is not None:
         if latest.market_quality_score is not None and latest.market_quality_score < Decimal("65"):
             return "market_quality_below_gate"
         spread = latest.outcome0_spread if order_input.outcome_index == 0 else latest.outcome1_spread
@@ -516,10 +516,10 @@ async def _risk_error(
     if order_input.enforce_auto_gates and market.closes_at is not None and _aware(market.closes_at) <= utcnow():
         return "market_closed"
     daily_loss = await _daily_loss(session, account.id)
-    if daily_loss <= -(equity * Decimal(str(settings.max_daily_loss_pct))):
+    if order_input.side.upper() == "BUY" and daily_loss <= -(equity * Decimal(str(settings.max_daily_loss_pct))):
         return "daily_loss_limit_reached"
     event = await session.get(PredictionEvent, market.event_id)
-    if event is not None:
+    if order_input.side.upper() == "BUY" and event is not None:
         exposure = await _category_exposure(session, account.id, event.categories)
         if exposure + notional > equity * Decimal(str(settings.max_category_exposure_pct)):
             return "category_exposure_exceeds_15pct_equity"

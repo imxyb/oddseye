@@ -103,7 +103,7 @@ class CodexClient:
         offset: int = 0,
         job_run_id: str | None = None,
     ) -> dict[str, Any]:
-        protocol_values = protocols or ["POLYMARKET", "KALSHI"]
+        protocol_values = protocols or ["POLYMARKET"]
         return await self.call(
             "discovery",
             queries.DISCOVER_EVENTS,

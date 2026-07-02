@@ -188,7 +188,7 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
                 {
                     "signal_id": "signal-crypto-threshold",
                     "market_id": "market-1",
-                    "strategy_code": "crypto_threshold_v1",
+                    "strategy_code": "crypto_threshold_v2",
                     "question": "Will BTC be above $80,000 on July 31, 2026?",
                     "category": "crypto",
                     "action": "BUY",
@@ -218,7 +218,7 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
                 {
                     "signal_id": "signal-zero-price",
                     "market_id": "market-1",
-                    "strategy_code": "crypto_threshold_v1",
+                    "strategy_code": "crypto_threshold_v2",
                     "question": "Will BTC be above $80,000 on July 31, 2026?",
                     "category": "crypto",
                     "action": "BUY",
@@ -228,12 +228,30 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
                 {
                     "signal_id": "signal-buy",
                     "market_id": "market-1",
-                    "strategy_code": "crypto_threshold_v1",
+                    "strategy_code": "crypto_threshold_v2",
                     "question": "Will BTC be above $80,000 on July 31, 2026?",
                     "category": "crypto",
                     "action": "BUY",
                     "side": "YES",
                     "executable_price": 0.5,
+                    "raw_signal_json": {
+                        "auto_order": {
+                            "order": {
+                                "order_id": "signal-order",
+                                "market_id": "market-1",
+                                "signal_id": "signal-buy",
+                                "outcome_index": 0,
+                                "quantity": 0.02,
+                                "status": "filled",
+                            },
+                            "fill": {
+                                "fill_id": "signal-fill",
+                                "price": 0.50125,
+                                "snapshot_id": 11,
+                            },
+                            "position": {"position_id": "signal-position"},
+                        }
+                    },
                 }
             ],
         },
@@ -242,7 +260,7 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
                 {
                     "signal_id": "signal-observe",
                     "market_id": "market-2",
-                    "strategy_code": "crypto_threshold_v1",
+                    "strategy_code": "crypto_threshold_v2",
                     "question": "Will ETH be above $5,000 on July 31, 2026?",
                     "category": "crypto",
                     "action": "OBSERVE",
@@ -251,15 +269,15 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
                 }
             ],
         },
-        ("GET", "/signals?action=IGNORE&limit=5"): {
+        ("GET", "/signals?action=BLOCKED&limit=5"): {
             "items": [
                 {
                     "signal_id": "signal-ignore",
                     "market_id": "market-3",
-                    "strategy_code": "crypto_threshold_v1",
+                    "strategy_code": "crypto_threshold_v2",
                     "question": "Bitcoin price on Jul 1, 2026?",
                     "category": "crypto",
-                    "action": "IGNORE",
+                    "action": "BLOCKED",
                     "side": None,
                     "executable_price": None,
                 }
@@ -337,7 +355,7 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
         ("GET", "/paper/review"): {
             "strategy_stats": [
                 {
-                    "key": "crypto_threshold_v1",
+                    "key": "crypto_threshold_v2",
                     "total_trades": 2,
                     "total_notional": 1.0,
                     "average_edge": 0.1,
@@ -385,7 +403,7 @@ def _successful_text_responses() -> dict[tuple[str, str], str]:
             "/paper/trades.csv",
         ): (
             "fill_id,order_id,signal_id,snapshot_id,market_id,strategy_code,price,created_at\n"
-            "fill-1,order-1,signal-1,snapshot-1,market-1,crypto_threshold_v1,0.50125,2026-07-02T00:00:00Z\n"
+            "fill-1,order-1,signal-1,snapshot-1,market-1,crypto_threshold_v2,0.50125,2026-07-02T00:00:00Z\n"
             "fill-2,order-2,,snapshot-2,market-2,,0.45000,2026-07-02T00:01:00Z\n"
         ),
     }
@@ -443,7 +461,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "macro_observe_signal",
         "signal_action_BUY",
         "signal_action_OBSERVE",
-        "signal_action_IGNORE",
+        "signal_action_BLOCKED",
         "paper_signal_order",
         "paper_signal_sell_order",
         "usage",
@@ -505,13 +523,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/signals?category=economics&limit=5", "token-123", None),
         ("GET", "/signals?action=BUY&limit=5", "token-123", None),
         ("GET", "/signals?action=OBSERVE&limit=5", "token-123", None),
-        ("GET", "/signals?action=IGNORE&limit=5", "token-123", None),
-        (
-            "POST",
-            "/signals/signal-buy/paper-order",
-            "token-123",
-            {"notional": "0.01", "limit_price": "0.505000"},
-        ),
+        ("GET", "/signals?action=BLOCKED&limit=5", "token-123", None),
         ("GET", "/markets/market-1", "token-123", None),
         (
             "POST",
@@ -593,18 +605,21 @@ def test_verify_production_rejects_missing_macro_observe_signal() -> None:
         )
 
 
-def test_verify_production_rejects_missing_ignore_signal_action() -> None:
+def test_verify_production_allows_missing_blocked_signal_action() -> None:
     responses = _successful_responses()
-    responses[("GET", "/signals?action=IGNORE&limit=5")] = {"items": []}
+    responses[("GET", "/signals?action=BLOCKED&limit=5")] = {"items": []}
     client = FakeProductionClient(responses, _successful_text_responses())
 
-    with pytest.raises(ProductionVerificationError, match="signal_action_IGNORE"):
-        verify_production(
-            base_url="https://oddseye.fun",
-            username="admin",
-            password="secret",
-            client=client,
-        )
+    checks = verify_production(
+        base_url="https://oddseye.fun",
+        username="admin",
+        password="secret",
+        client=client,
+    )
+
+    blocked = next(check for check in checks if check.name == "signal_action_BLOCKED")
+    assert blocked.ok is True
+    assert blocked.detail == "no BLOCKED signal required"
 
 
 def test_verify_production_rejects_missing_compute_signals_job() -> None:
@@ -803,6 +818,10 @@ def test_verify_production_rejects_incomplete_quality_components() -> None:
 
 def test_verify_production_rejects_unfilled_signal_paper_order() -> None:
     responses = _successful_responses()
+    buy_signals = responses[("GET", "/signals?action=BUY&limit=5")]
+    assert isinstance(buy_signals, dict)
+    buy_items = buy_signals["items"]
+    buy_items[1]["raw_signal_json"]["auto_order"]["order"]["status"] = "open"
     responses[("POST", "/signals/signal-buy/paper-order")] = {
         "order": {
             "order_id": "signal-order",
@@ -856,15 +875,15 @@ def test_verify_production_skips_invalid_crypto_threshold_candidates() -> None:
             {
                 "signal_id": "signal-parser-failed",
                 "market_id": "market-2",
-                "strategy_code": "crypto_threshold_v1",
+                "strategy_code": "crypto_threshold_v2",
                 "question": "BTC price up in next 15 mins?",
                 "category": "crypto",
-                "action": "IGNORE",
+                "action": "BLOCKED",
             },
             {
                 "signal_id": "signal-valid-threshold",
                 "market_id": "market-1",
-                "strategy_code": "crypto_threshold_v1",
+                "strategy_code": "crypto_threshold_v2",
                 "question": "Will the price of Bitcoin be above $62,000 on July 1?",
                 "category": "crypto",
                 "action": "OBSERVE",
@@ -975,7 +994,7 @@ def test_verify_production_rejects_untraceable_signal_trade() -> None:
                 "/paper/trades.csv",
             ): (
                 "fill_id,order_id,signal_id,snapshot_id,market_id,strategy_code,price,created_at\n"
-                "fill-1,order-1,,snapshot-1,market-1,crypto_threshold_v1,0.50125,2026-07-02T00:00:00Z\n"
+                "fill-1,order-1,,snapshot-1,market-1,crypto_threshold_v2,0.50125,2026-07-02T00:00:00Z\n"
             ),
         },
     )
@@ -998,7 +1017,7 @@ def test_verify_production_rejects_trade_without_snapshot_or_price() -> None:
                 "/paper/trades.csv",
             ): (
                 "fill_id,order_id,signal_id,snapshot_id,market_id,strategy_code,price,created_at\n"
-                "fill-1,order-1,signal-1,,market-1,crypto_threshold_v1,,2026-07-02T00:00:00Z\n"
+                "fill-1,order-1,signal-1,,market-1,crypto_threshold_v2,,2026-07-02T00:00:00Z\n"
             ),
         },
     )

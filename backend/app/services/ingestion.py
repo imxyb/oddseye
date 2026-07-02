@@ -118,6 +118,8 @@ async def discover_events(
     count = 0
     for row in rows:
         normalized = normalize_event(row)
+        if normalized.protocol.upper() != "POLYMARKET":
+            continue
         venue = await _venue_for_protocol(session, normalized.protocol)
         existing = await session.scalar(
             select(PredictionEvent).where(
@@ -179,6 +181,8 @@ async def sync_event_markets(
     count = 0
     for row in rows:
         normalized = normalize_market(row)
+        if normalized.protocol.upper() != "POLYMARKET":
+            continue
         venue = await _venue_for_protocol(session, normalized.protocol)
         event = await session.scalar(
             select(PredictionEvent).where(

@@ -30,7 +30,6 @@ radar:
     - finance
   protocols:
     - POLYMARKET
-    - KALSHI
   min_liquidity_usd: 1000
   min_volume_usd_24h: 500
   max_spread_ct: 0.08

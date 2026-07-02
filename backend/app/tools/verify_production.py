@@ -358,9 +358,10 @@ def verify_production(
     _require_signal_action(observe_signals, "OBSERVE", name="signal_action_OBSERVE")
     checks.append(VerificationCheck("signal_action_OBSERVE", True, "OBSERVE signal action returned"))
 
-    ignore_signals = production_client.request("GET", "/signals?action=IGNORE&limit=5", token=token)
-    _require_signal_action(ignore_signals, "IGNORE", name="signal_action_IGNORE")
-    checks.append(VerificationCheck("signal_action_IGNORE", True, "IGNORE signal action returned"))
+    blocked_signals = production_client.request("GET", "/signals?action=BLOCKED&limit=5", token=token)
+    blocked_signal = _optional_signal_action(blocked_signals, "BLOCKED", name="signal_action_BLOCKED")
+    blocked_detail = "BLOCKED signal action returned" if blocked_signal else "no BLOCKED signal required"
+    checks.append(VerificationCheck("signal_action_BLOCKED", True, blocked_detail))
 
     buy_signal = _first_orderable_buy_signal(buy_signals)
     signal_id = buy_signal["signal_id"]
@@ -369,15 +370,17 @@ def verify_production(
         "paper_signal_order",
         "signal executable_price",
     )
-    signal_order = production_client.request(
-        "POST",
-        f"/signals/{quote(signal_id, safe='')}/paper-order",
-        token=token,
-        json_body={
-            "notional": str(VERIFY_PAPER_NOTIONAL),
-            "limit_price": str(_buy_limit_for_fill(signal_limit_price)),
-        },
-    )
+    signal_order = _auto_order_payload_for_signal(buy_signal)
+    if signal_order is None:
+        signal_order = production_client.request(
+            "POST",
+            f"/signals/{quote(signal_id, safe='')}/paper-order",
+            token=token,
+            json_body={
+                "notional": str(VERIFY_PAPER_NOTIONAL),
+                "limit_price": str(_buy_limit_for_fill(signal_limit_price)),
+            },
+        )
     _require_paper_buy_fill(
         signal_order,
         name="paper_signal_order",
@@ -832,13 +835,37 @@ def _require_signal_action(payload: dict[str, Any], action: str, *, name: str) -
     raise ProductionVerificationError(f"{name}: no {action} signal returned")
 
 
+def _optional_signal_action(payload: dict[str, Any], action: str, *, name: str) -> dict[str, Any] | None:
+    items = payload.get("items")
+    _require(isinstance(items, list), name, f"missing {action} signal items")
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        if item.get("action") == action:
+            return item
+    return None
+
+
+def _auto_order_payload_for_signal(signal: dict[str, Any]) -> dict[str, Any] | None:
+    raw = signal.get("raw_signal_json")
+    if not isinstance(raw, dict):
+        return None
+    auto_order = raw.get("auto_order")
+    if not isinstance(auto_order, dict):
+        return None
+    order = auto_order.get("order")
+    if not isinstance(order, dict) or order.get("status") != "filled":
+        return None
+    return auto_order
+
+
 def _require_crypto_threshold_signal(payload: dict[str, Any]) -> dict[str, Any]:
     items = payload.get("items")
     _require(isinstance(items, list), "crypto_threshold_signal", "missing crypto signal items")
     for item in items:
         if not isinstance(item, dict):
             continue
-        if item.get("strategy_code") != "crypto_threshold_v1":
+        if item.get("strategy_code") != "crypto_threshold_v2":
             continue
         question = item.get("question")
         category = item.get("category")
@@ -849,7 +876,7 @@ def _require_crypto_threshold_signal(payload: dict[str, Any]) -> dict[str, Any]:
             isinstance(question, str)
             and question
             and category == "crypto"
-            and action in {"BUY", "OBSERVE", "IGNORE", "HOLD", "EXIT"}
+            and action in {"BUY", "OBSERVE", "BLOCKED", "HOLD", "EXIT", "REDUCE"}
             and isinstance(signal_id, str)
             and signal_id
             and isinstance(market_id, str)
@@ -857,7 +884,7 @@ def _require_crypto_threshold_signal(payload: dict[str, Any]) -> dict[str, Any]:
             and _looks_like_crypto_threshold_question(question)
         ):
             return item
-    raise ProductionVerificationError("crypto_threshold_signal: no crypto_threshold_v1 signal returned")
+    raise ProductionVerificationError("crypto_threshold_signal: no crypto_threshold_v2 signal returned")
 
 
 def _require_macro_observe_signal(payload: dict[str, Any]) -> dict[str, Any]:

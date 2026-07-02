@@ -10,7 +10,7 @@ from app.db.models import PaperAccount, Venue
 
 
 async def ensure_default_venues(session: AsyncSession) -> None:
-    for code, name in {"POLYMARKET": "Polymarket", "KALSHI": "Kalshi"}.items():
+    for code, name in {"POLYMARKET": "Polymarket"}.items():
         existing = await session.scalar(select(Venue).where(Venue.code == code))
         if existing is None:
             session.add(Venue(code=code, name=name, supports_execution=False))
@@ -30,4 +30,3 @@ async def ensure_default_paper_account(session: AsyncSession) -> PaperAccount:
     session.add(account)
     await session.flush()
     return account
-
