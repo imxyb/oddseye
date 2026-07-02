@@ -25,6 +25,7 @@ from app.db.models import (
 from app.db.session import Base, create_sessionmaker, get_session_factory
 from app.services.ingestion import sync_event_markets
 from app.services.usage import DatabaseUsageRecorder
+from app.strategies.crypto_v2.semantic_parser import SEMANTIC_CACHE_KEY
 from app.workers.ingest import _sync_markets, event_ids_for_sync
 
 
@@ -314,6 +315,56 @@ async def test_sync_event_markets_reuses_existing_clob_token_ids(tmp_path, monke
         "old-yes-token",
         "old-no-token",
     ]
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_sync_event_markets_preserves_crypto_semantic_parse_cache(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'semantic-cache.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        session.add(venue)
+        await session.flush()
+        event = await _event(session, venue.id, "event-1", days=7)
+        existing_market = await _market(
+            session,
+            venue.id,
+            event,
+            external_market_id="0xabc:Polymarket:0xdef:137",
+        )
+        existing_market.raw_json = {
+            "clobTokenIds": ["old-yes-token", "old-no-token"],
+            SEMANTIC_CACHE_KEY: {
+                "version": "llm_semantic_v1",
+                "question": existing_market.question,
+                "resolution_source": existing_market.resolution_source,
+                "provider": "deepseek",
+                "model": "deepseek-v4-flash",
+                "parsed": {
+                    "asset": "BTC",
+                    "market_type": "hit_above",
+                    "threshold": "66000",
+                    "confidence": 0.96,
+                    "unsupported_flags": [],
+                },
+            },
+        }
+        await session.commit()
+
+        count = await sync_event_markets(
+            session,
+            ["event-1"],
+            client=FakeCodexMarketsClient([_codex_market_row()]),
+        )
+
+        market = await session.scalar(select(PredictionMarket))
+
+    assert count == 1
+    assert market is not None
+    assert market.raw_json["clobTokenIds"] == ["old-yes-token", "old-no-token"]
+    assert market.raw_json[SEMANTIC_CACHE_KEY]["parsed"]["market_type"] == "hit_above"
     await sessionmaker.bind.dispose()
 
 

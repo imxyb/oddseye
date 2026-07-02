@@ -32,9 +32,11 @@ from app.scoring.market_quality import QualityInputs, compute_market_quality
 from app.services.bootstrap import ensure_default_venues
 from app.services.polymarket_metadata import PolymarketMarketMetadataClient, PolymarketMarketTokens
 from app.services.usage import DatabaseUsageRecorder
+from app.strategies.crypto_v2.semantic_parser import SEMANTIC_CACHE_KEY
 
 CODEX_MAX_EVENT_IDS = 200
 logger = structlog.get_logger(__name__)
+PRESERVED_MARKET_RAW_JSON_KEYS = (SEMANTIC_CACHE_KEY,)
 
 
 def create_codex_client() -> CodexClient:
@@ -261,7 +263,10 @@ async def sync_event_markets(
                     market.closes_at = normalized.closes_at
                     market.resolves_at = normalized.resolves_at
                     market.resolution_source = normalized.resolution_source
-                    market.raw_json = normalized.raw_json
+                    market.raw_json = _preserve_market_raw_json(
+                        current=market.raw_json,
+                        incoming=normalized.raw_json,
+                    )
                     market.updated_at = utcnow()
                 for outcome in normalized.outcomes:
                     await _upsert_outcome(session, market.id, outcome)
@@ -279,6 +284,14 @@ def _chunks(values: list[str], size: int) -> list[list[str]]:
 
 def _needs_clob_token_enrichment(normalized: NormalizedMarket) -> bool:
     return any(not outcome.get("external_token_id") for outcome in normalized.outcomes[:2])
+
+
+def _preserve_market_raw_json(*, current: dict | None, incoming: dict | None) -> dict:
+    merged = dict(incoming or {})
+    for key in PRESERVED_MARKET_RAW_JSON_KEYS:
+        if current and key in current and key not in merged:
+            merged[key] = current[key]
+    return merged
 
 
 async def _existing_clob_token_ids(
