@@ -189,6 +189,34 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
                 }
             ],
         },
+        ("GET", "/signals?action=OBSERVE&limit=5"): {
+            "items": [
+                {
+                    "signal_id": "signal-observe",
+                    "market_id": "market-2",
+                    "strategy_code": "crypto_threshold_v1",
+                    "question": "Will ETH be above $5,000 on July 31, 2026?",
+                    "category": "crypto",
+                    "action": "OBSERVE",
+                    "side": None,
+                    "executable_price": None,
+                }
+            ],
+        },
+        ("GET", "/signals?action=IGNORE&limit=5"): {
+            "items": [
+                {
+                    "signal_id": "signal-ignore",
+                    "market_id": "market-3",
+                    "strategy_code": "crypto_threshold_v1",
+                    "question": "Bitcoin price on Jul 1, 2026?",
+                    "category": "crypto",
+                    "action": "IGNORE",
+                    "side": None,
+                    "executable_price": None,
+                }
+            ],
+        },
         ("POST", "/signals/signal-buy/paper-order"): {
             "order": {
                 "order_id": "signal-order",
@@ -224,6 +252,14 @@ def _successful_responses() -> dict[tuple[str, str], dict | list[dict]]:
                     "job_name": "compute_quality",
                     "started_at": "2026-07-02T00:02:00+00:00",
                     "finished_at": "2026-07-02T00:02:01+00:00",
+                    "status": "success",
+                    "records_processed": 6,
+                    "codex_requests_used": 0,
+                },
+                {
+                    "job_name": "compute_signals",
+                    "started_at": "2026-07-02T00:02:30+00:00",
+                    "finished_at": "2026-07-02T00:02:31+00:00",
                     "status": "success",
                     "records_processed": 6,
                     "codex_requests_used": 0,
@@ -338,9 +374,13 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "market_bars_freshness",
         "signals",
         "crypto_threshold_signal",
+        "signal_action_BUY",
+        "signal_action_OBSERVE",
+        "signal_action_IGNORE",
         "paper_signal_order",
         "usage",
         "scheduled_jobs",
+        "compute_signals_job",
         "manual_refresh_job",
         "paper_performance",
         "paper_review",
@@ -390,6 +430,8 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/signals?limit=3", "token-123", None),
         ("GET", "/signals?category=crypto&limit=20", "token-123", None),
         ("GET", "/signals?action=BUY&limit=5", "token-123", None),
+        ("GET", "/signals?action=OBSERVE&limit=5", "token-123", None),
+        ("GET", "/signals?action=IGNORE&limit=5", "token-123", None),
         (
             "POST",
             "/signals/signal-buy/paper-order",
@@ -410,6 +452,52 @@ def test_verify_production_rejects_empty_live_signal_response() -> None:
     client = FakeProductionClient(responses, _successful_text_responses())
 
     with pytest.raises(ProductionVerificationError, match="signals"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_missing_observe_signal_action() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/signals?action=OBSERVE&limit=5")] = {"items": []}
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="signal_action_OBSERVE"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_missing_ignore_signal_action() -> None:
+    responses = _successful_responses()
+    responses[("GET", "/signals?action=IGNORE&limit=5")] = {"items": []}
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="signal_action_IGNORE"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
+
+
+def test_verify_production_rejects_missing_compute_signals_job() -> None:
+    responses = _successful_responses()
+    usage = responses[("GET", "/settings/usage")]
+    assert isinstance(usage, dict)
+    usage["recent_jobs"] = [
+        job for job in usage["recent_jobs"] if job.get("job_name") != "compute_signals"
+    ]
+    client = FakeProductionClient(responses, _successful_text_responses())
+
+    with pytest.raises(ProductionVerificationError, match="compute_signals_job"):
         verify_production(
             base_url="https://oddseye.fun",
             username="admin",

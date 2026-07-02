@@ -13,27 +13,25 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { getSignals, signalKeys } from "../../src/api/signals";
-import type { Signal, SignalAction } from "../../src/api/types";
+import type { Signal } from "../../src/api/types";
 import { SignalBadge } from "../../src/components/SignalBadge";
 import { colors, spacing } from "../../src/theme";
 import { formatCents, formatPercent } from "../../src/utils/format";
 import { buildSignalExplanationRows } from "../../src/utils/signalExplanation";
-
-const signalActions: Array<SignalAction | undefined> = [
-  undefined,
-  "BUY",
-  "OBSERVE",
-  "EXIT",
-  "IGNORE",
-  "HOLD",
-];
+import {
+  defaultSignalFilterKey,
+  isOrderableSignal,
+  signalFilterParams,
+  signalFilters,
+  type SignalFilterKey,
+} from "../../src/utils/signalVisibility";
 
 function ActionFilter({
-  action,
+  label,
   selected,
   onPress,
 }: {
-  action: SignalAction | undefined;
+  label: string;
   selected: boolean;
   onPress: () => void;
 }) {
@@ -44,7 +42,7 @@ function ActionFilter({
       style={[styles.filterButton, selected && styles.filterActive]}
     >
       <Text style={[styles.filterText, selected && styles.filterTextActive]}>
-        {action ?? "ALL"}
+        {label}
       </Text>
     </Pressable>
   );
@@ -111,35 +109,37 @@ function SignalCard({ signal }: { signal: Signal }) {
         </View>
       ) : null}
 
-      <Pressable
-        accessibilityRole="button"
-        onPress={() =>
-          router.push({
-            pathname: "/paper/new-order",
-            params: {
-              signalId: signal.signal_id,
-              limitPrice: signal.executable_price
-                ? String(signal.executable_price)
-                : "",
-            },
-          })
-        }
-        style={styles.orderButton}
-      >
-        <Text style={styles.orderText}>Paper order</Text>
-      </Pressable>
+      {isOrderableSignal(signal) ? (
+        <Pressable
+          accessibilityRole="button"
+          onPress={() =>
+            router.push({
+              pathname: "/paper/new-order",
+              params: {
+                signalId: signal.signal_id,
+                limitPrice: String(signal.executable_price),
+              },
+            })
+          }
+          style={styles.orderButton}
+        >
+          <Text style={styles.orderText}>Paper order</Text>
+        </Pressable>
+      ) : null}
     </Pressable>
   );
 }
 
 export default function SignalsScreen() {
-  const [selectedAction, setSelectedAction] = useState<SignalAction | undefined>();
+  const [selectedFilter, setSelectedFilter] = useState<SignalFilterKey>(
+    defaultSignalFilterKey,
+  );
   const params = useMemo(
     () => ({
-      action: selectedAction,
+      ...signalFilterParams(selectedFilter),
       limit: 50,
     }),
-    [selectedAction],
+    [selectedFilter],
   );
   const signalsQuery = useQuery({
     queryKey: signalKeys.list(params),
@@ -154,12 +154,12 @@ export default function SignalsScreen() {
         keyExtractor={(item) => item.signal_id}
         ListHeaderComponent={
           <View style={styles.filterGroup}>
-            {signalActions.map((action) => (
+            {signalFilters.map((filter) => (
               <ActionFilter
-                key={action ?? "all"}
-                action={action}
-                selected={selectedAction === action}
-                onPress={() => setSelectedAction(action)}
+                key={filter.key}
+                label={filter.label}
+                selected={selectedFilter === filter.key}
+                onPress={() => setSelectedFilter(filter.key)}
               />
             ))}
           </View>

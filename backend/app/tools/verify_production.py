@@ -296,6 +296,17 @@ def verify_production(
     )
 
     buy_signals = production_client.request("GET", "/signals?action=BUY&limit=5", token=token)
+    _require_signal_action(buy_signals, "BUY", name="signal_action_BUY")
+    checks.append(VerificationCheck("signal_action_BUY", True, "BUY signal action returned"))
+
+    observe_signals = production_client.request("GET", "/signals?action=OBSERVE&limit=5", token=token)
+    _require_signal_action(observe_signals, "OBSERVE", name="signal_action_OBSERVE")
+    checks.append(VerificationCheck("signal_action_OBSERVE", True, "OBSERVE signal action returned"))
+
+    ignore_signals = production_client.request("GET", "/signals?action=IGNORE&limit=5", token=token)
+    _require_signal_action(ignore_signals, "IGNORE", name="signal_action_IGNORE")
+    checks.append(VerificationCheck("signal_action_IGNORE", True, "IGNORE signal action returned"))
+
     buy_signal = _first_orderable_buy_signal(buy_signals)
     signal_id = buy_signal["signal_id"]
     signal_limit_price = _decimal_payload_value(
@@ -338,6 +349,9 @@ def verify_production(
             f"{scheduled_count} successful market ingestion job types returned",
         )
     )
+
+    _require_compute_signals_job(usage)
+    checks.append(VerificationCheck("compute_signals_job", True, "signal worker job run recorded"))
 
     _require_manual_refresh_job(usage)
     checks.append(VerificationCheck("manual_refresh_job", True, "manual refresh job run recorded"))
@@ -609,6 +623,28 @@ def _first_orderable_buy_signal(payload: dict[str, Any]) -> dict[str, Any]:
     raise ProductionVerificationError("paper_signal_order: no orderable BUY signal returned")
 
 
+def _require_signal_action(payload: dict[str, Any], action: str, *, name: str) -> dict[str, Any]:
+    items = payload.get("items")
+    _require(isinstance(items, list), name, f"missing {action} signal items")
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        signal_id = item.get("signal_id")
+        market_id = item.get("market_id")
+        question = item.get("question")
+        if (
+            item.get("action") == action
+            and isinstance(signal_id, str)
+            and signal_id
+            and isinstance(market_id, str)
+            and market_id
+            and isinstance(question, str)
+            and question
+        ):
+            return item
+    raise ProductionVerificationError(f"{name}: no {action} signal returned")
+
+
 def _require_crypto_threshold_signal(payload: dict[str, Any]) -> dict[str, Any]:
     items = payload.get("items")
     _require(isinstance(items, list), "crypto_threshold_signal", "missing crypto signal items")
@@ -726,6 +762,17 @@ def _require_manual_refresh_job(payload: dict[str, Any]) -> None:
         if isinstance(job, dict) and job.get("status") == "success" and isinstance(job.get("job_name"), str)
     }
     _require_successful_job(successful_jobs, "manual_refresh", require_records=True, name="manual_refresh_job")
+
+
+def _require_compute_signals_job(payload: dict[str, Any]) -> None:
+    jobs = payload.get("recent_jobs")
+    _require(isinstance(jobs, list), "compute_signals_job", "missing recent_jobs list")
+    successful_jobs = {
+        job.get("job_name"): job
+        for job in jobs
+        if isinstance(job, dict) and job.get("status") == "success" and isinstance(job.get("job_name"), str)
+    }
+    _require_successful_job(successful_jobs, "compute_signals", require_records=True, name="compute_signals_job")
 
 
 def _require_successful_job(
