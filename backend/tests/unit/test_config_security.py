@@ -106,3 +106,40 @@ macro_calendar_v1:
     assert settings.config.strategies.crypto_threshold_v2.paper_execution.auto_execute_signals is False
 
     get_settings.cache_clear()
+
+
+def test_runtime_config_prefers_sibling_strategy_yaml_over_example(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "app.yaml"
+    config_path.write_text("app:\n  name: production-config\n", encoding="utf-8")
+    (tmp_path / "strategy.example.yaml").write_text(
+        """
+crypto_threshold_v2:
+  mode: observe_only
+  edge:
+    max_spread_ct: 0.012
+""",
+        encoding="utf-8",
+    )
+    (tmp_path / "strategy.yaml").write_text(
+        """
+crypto_threshold_v2:
+  mode: paper_only
+  edge:
+    max_spread_ct: 0.033
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_CONFIG_PATH", str(config_path))
+    monkeypatch.delenv("STRATEGY_CONFIG_PATH", raising=False)
+    monkeypatch.setenv("APP_ENV", "dev")
+    get_settings.cache_clear()
+
+    settings = get_settings()
+
+    assert settings.config.strategies.crypto_threshold_v2.mode == "paper_only"
+    assert settings.config.strategies.crypto_threshold_v2.edge.max_spread_ct == 0.033
+
+    get_settings.cache_clear()

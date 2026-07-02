@@ -17,6 +17,7 @@ Thumbs.db
 config/app.yaml
 config/*.yaml
 !config/*.example.yaml
+!config/strategy.yaml
 config/*.local.yaml
 *.pem
 *.key

@@ -263,6 +263,9 @@ def _default_strategy_config_path(app_config_path: str) -> str:
     config_path = Path(app_config_path)
     if not config_path.is_absolute():
         config_path = Path.cwd() / config_path
+    strategy_path = config_path.parent / "strategy.yaml"
+    if strategy_path.exists():
+        return str(strategy_path)
     return str(config_path.parent / "strategy.example.yaml")
 
 
