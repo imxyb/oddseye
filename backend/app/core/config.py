@@ -218,6 +218,7 @@ class EnvSettings(BaseSettings):
 
     app_env: str = "dev"
     app_config_path: str = "../config/app.example.yaml"
+    strategy_config_path: str | None = None
     database_url: str = "sqlite+aiosqlite:///./prediction_radar.db"
     redis_url: str | None = "redis://localhost:6379/0"
     codex_api_key: str = ""
@@ -258,6 +259,21 @@ def _load_yaml_config(path: str) -> dict[str, Any]:
         return yaml.safe_load(handle) or {}
 
 
+def _default_strategy_config_path(app_config_path: str) -> str:
+    config_path = Path(app_config_path)
+    if not config_path.is_absolute():
+        config_path = Path.cwd() / config_path
+    return str(config_path.parent / "strategy.example.yaml")
+
+
+def _strategy_yaml_as_runtime_config(strategy_yaml: dict[str, Any]) -> dict[str, Any]:
+    if not strategy_yaml:
+        return {}
+    if "strategies" in strategy_yaml:
+        return strategy_yaml
+    return {"strategies": strategy_yaml}
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     env = EnvSettings()
@@ -265,7 +281,9 @@ def get_settings() -> Settings:
         raise ValueError("JWT_SECRET must be at least 32 characters in prod")
     defaults = RuntimeConfig().model_dump()
     yaml_config = _load_yaml_config(env.app_config_path)
-    runtime = RuntimeConfig.model_validate(_deep_merge(defaults, yaml_config))
+    strategy_config_path = env.strategy_config_path or _default_strategy_config_path(env.app_config_path)
+    strategy_config = _strategy_yaml_as_runtime_config(_load_yaml_config(strategy_config_path))
+    runtime = RuntimeConfig.model_validate(_deep_merge(_deep_merge(defaults, strategy_config), yaml_config))
     return Settings(
         app_env=env.app_env,
         app_config_path=env.app_config_path,

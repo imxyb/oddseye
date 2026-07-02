@@ -1,6 +1,7 @@
 x-backend-env: &backend-env
   APP_ENV: ${APP_ENV:-prod}
   APP_CONFIG_PATH: ${APP_CONFIG_PATH:-/config/app.yaml}
+  STRATEGY_CONFIG_PATH: ${STRATEGY_CONFIG_PATH:-/config/strategy.example.yaml}
   DATABASE_URL: ${DATABASE_URL:?DATABASE_URL is required}
   REDIS_URL: ${REDIS_URL:?REDIS_URL is required}
   CODEX_API_KEY: ${CODEX_API_KEY:?CODEX_API_KEY is required}
