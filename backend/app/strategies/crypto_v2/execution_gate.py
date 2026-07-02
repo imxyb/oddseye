@@ -19,6 +19,7 @@ from app.strategies.crypto_v2.spec import (
 class ExecutionGateConfig:
     max_spread_ct: float = 0.04
     orderbook_seconds: int = 15
+    market_snapshot_seconds: int = 300
     spot_seconds: int = 30
     depth_multiplier: float = 1.5
     min_parser_confidence: float = 0.85
@@ -88,7 +89,7 @@ def evaluate_execution_gate(
         risk_flags.append("SPREAD_TOO_WIDE")
     if _age_seconds(asset_snapshot.ts, now) > config.spot_seconds:
         risk_flags.append("SPOT_DATA_STALE")
-    if _age_seconds(orderbook.ts, now) > config.orderbook_seconds:
+    if _age_seconds(orderbook.ts, now) > _orderbook_freshness_seconds(orderbook, config):
         risk_flags.append("ORDERBOOK_STALE")
     min_quality = config.touch_min_quality_score if spec.market_type.startswith("hit_") else config.min_quality_score
     if float(market_quality_score) < min_quality:
@@ -149,6 +150,15 @@ def _stress_probability(estimate: ProbabilityEstimate, side: Side) -> float:
 
 def _depth(orderbook: PredictionOrderBookSnapshot) -> Decimal:
     return orderbook.best_ask_size or orderbook.depth_to_100_usd or Decimal("0")
+
+
+def _orderbook_freshness_seconds(
+    orderbook: PredictionOrderBookSnapshot,
+    config: ExecutionGateConfig,
+) -> int:
+    if orderbook.source == "market_snapshot":
+        return max(config.orderbook_seconds, config.market_snapshot_seconds)
+    return config.orderbook_seconds
 
 
 def _age_seconds(ts: datetime, now: datetime) -> float:

@@ -543,6 +543,7 @@ def _execution_gate_config(config: CryptoThresholdV2Section) -> ExecutionGateCon
     return ExecutionGateConfig(
         max_spread_ct=config.edge.max_spread_ct,
         orderbook_seconds=config.data_freshness.orderbook_seconds,
+        market_snapshot_seconds=config.data_freshness.market_snapshot_seconds,
         spot_seconds=config.data_freshness.spot_seconds,
         depth_multiplier=config.sizing.depth_multiplier,
         min_parser_confidence=config.parser.min_confidence,

@@ -34,7 +34,7 @@ def test_blocks_stale_orderbook() -> None:
     decision = evaluate_execution_gate(
         spec=_spec(now),
         asset_snapshot=_asset_snapshot(now),
-        orderbook=_orderbook(now - timedelta(seconds=30)),
+        orderbook=_orderbook(now - timedelta(seconds=30), source="polymarket_clob"),
         estimate=_estimate(),
         side="YES",
         market_quality_score=Decimal("80"),
@@ -44,6 +44,22 @@ def test_blocks_stale_orderbook() -> None:
 
     assert not decision.allowed
     assert "ORDERBOOK_STALE" in decision.risk_flags
+
+
+def test_uses_snapshot_freshness_for_market_snapshot_orderbook() -> None:
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    decision = evaluate_execution_gate(
+        spec=_spec(now),
+        asset_snapshot=_asset_snapshot(now),
+        orderbook=_orderbook(now - timedelta(seconds=120), source="market_snapshot"),
+        estimate=_estimate(),
+        side="YES",
+        market_quality_score=Decimal("80"),
+        now=now,
+        config=ExecutionGateConfig(orderbook_seconds=15, market_snapshot_seconds=300),
+    )
+
+    assert "ORDERBOOK_STALE" not in decision.risk_flags
 
 
 def test_blocks_wide_spread() -> None:
@@ -189,6 +205,7 @@ def _orderbook(
     bid: Decimal = Decimal("0.48"),
     spread: Decimal = Decimal("0.02"),
     depth: Decimal = Decimal("150"),
+    source: str = "market_snapshot",
 ) -> PredictionOrderBookSnapshot:
     return PredictionOrderBookSnapshot(
         market_id="m1",
@@ -207,7 +224,7 @@ def _orderbook(
         tick_size=None,
         min_order_size=None,
         book_hash=None,
-        source="market_snapshot",
+        source=source,
         raw_json={},
     )
 
