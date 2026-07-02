@@ -29,6 +29,11 @@ from app.services.market_data import CATEGORY_ALIASES
 from app.services.paper_trading import PaperOrderInput, create_paper_order
 from app.services.prediction_orderbook import PredictionOrderBookService
 from app.strategies.base import StrategySignal
+from app.strategies.crypto_v2.exposure import (
+    ExposureDirection,
+    buy_exposure_direction,
+    opposite_direction,
+)
 from app.strategies.crypto_v2.lifecycle import PositionState
 from app.strategies.crypto_v2.spec import CryptoMarketSpec
 from app.strategies.crypto_v2.spec_parser import CryptoMarketSpecParserV2
@@ -507,13 +512,14 @@ async def _asset_horizon_portfolio_state(
     return current_exposure, position_count
 
 
-async def _asset_window_open_position_count(
+async def _asset_window_opposite_direction_position_exists(
     session: AsyncSession,
     *,
     account_id: str,
     spec: CryptoMarketSpec,
+    direction: ExposureDirection,
     parser: CryptoMarketSpecParserV2,
-) -> int:
+) -> bool:
     rows = await session.execute(
         select(PaperPosition, PredictionMarket, PredictionEvent)
         .join(PredictionMarket, PaperPosition.market_id == PredictionMarket.id)
@@ -524,14 +530,19 @@ async def _asset_window_open_position_count(
             PaperPosition.quantity > 0,
         )
     )
-    count = 0
-    for _position, market, event in rows.all():
+    opposite = opposite_direction(direction)
+    if opposite is None:
+        return False
+    for position, market, event in rows.all():
         parsed = parser.parse(market, event)
         if parsed.failed or parsed.spec is None:
             continue
-        if _asset_window_key(parsed.spec) == _asset_window_key(spec):
-            count += 1
-    return count
+        if _asset_window_key(parsed.spec) != _asset_window_key(spec):
+            continue
+        position_side = "YES" if position.outcome_index == 0 else "NO"
+        if buy_exposure_direction(parsed.spec.market_type, position_side) == opposite:
+            return True
+    return False
 
 
 def _horizon_bucket(value: datetime) -> str:
@@ -543,16 +554,20 @@ def _asset_window_key(spec: CryptoMarketSpec) -> tuple[str, str]:
     return spec.asset.upper(), spec.window_end.isoformat()
 
 
-async def _auto_buy_asset_window_key(
+async def _auto_buy_exposure_key(
     session: AsyncSession,
     *,
     model_signal: ModelSignal,
-) -> tuple[str, str] | None:
+) -> tuple[str, str, ExposureDirection] | None:
+    if model_signal.side not in {"YES", "NO"}:
+        return None
     raw_spec = (model_signal.raw_json or {}).get("market_spec") or {}
     raw_asset = raw_spec.get("asset")
     raw_window_end = raw_spec.get("window_end")
-    if raw_asset and raw_window_end:
-        return str(raw_asset).upper(), str(raw_window_end)
+    raw_market_type = raw_spec.get("market_type")
+    if raw_asset and raw_window_end and raw_market_type:
+        direction = buy_exposure_direction(raw_market_type, model_signal.side)
+        return str(raw_asset).upper(), str(raw_window_end), direction
 
     market = await session.get(PredictionMarket, model_signal.market_id)
     if market is None:
@@ -563,7 +578,9 @@ async def _auto_buy_asset_window_key(
     parsed = CryptoMarketSpecParserV2().parse(market, event)
     if parsed.failed or parsed.spec is None:
         return None
-    return _asset_window_key(parsed.spec)
+    asset, window_end = _asset_window_key(parsed.spec)
+    direction = buy_exposure_direction(parsed.spec.market_type, model_signal.side)
+    return asset, window_end, direction
 
 
 async def _auto_execute_v2_signal(
@@ -651,13 +668,15 @@ async def _auto_buy_portfolio_skip_reason(
         spec=parsed.spec,
         parser=parser,
     )
-    if await _asset_window_open_position_count(
+    exposure_key = await _auto_buy_exposure_key(session, model_signal=model_signal)
+    if exposure_key is not None and await _asset_window_opposite_direction_position_exists(
         session,
         account_id=account.id,
         spec=parsed.spec,
+        direction=exposure_key[2],
         parser=parser,
     ):
-        return "asset_window_position_already_open"
+        return "asset_window_opposite_direction_position_already_open"
 
     max_positions = strategy_config.paper_execution.max_asset_horizon_positions
     if max_positions > 0 and position_count >= max_positions:
@@ -676,21 +695,29 @@ async def _auto_execute_v2_signals(
     account: PaperAccount,
     candidates: list[AutoExecutionCandidate],
 ) -> None:
-    opened_buy_asset_windows: set[tuple[str, str]] = set()
+    opened_buy_exposures: set[tuple[str, str, ExposureDirection]] = set()
     for candidate in sorted(candidates, key=_auto_execution_sort_key):
-        buy_asset_window = None
+        buy_exposure = None
         if candidate.model_signal.action == "BUY":
-            buy_asset_window = await _auto_buy_asset_window_key(
+            buy_exposure = await _auto_buy_exposure_key(
                 session,
                 model_signal=candidate.model_signal,
             )
-            if buy_asset_window is not None and buy_asset_window in opened_buy_asset_windows:
+            if (
+                buy_exposure is not None
+                and (
+                    buy_exposure[0],
+                    buy_exposure[1],
+                    opposite_direction(buy_exposure[2]),
+                )
+                in opened_buy_exposures
+            ):
                 _merge_signal_raw_json(
                     candidate.model_signal,
                     {
                         "auto_order": {
                             "status": "skipped",
-                            "reason": "asset_window_cycle_buy_already_selected",
+                            "reason": "asset_window_opposite_direction_already_selected",
                         }
                     },
                 )
@@ -701,8 +728,8 @@ async def _auto_execute_v2_signals(
             model_signal=candidate.model_signal,
             current_position=candidate.current_position,
         )
-        if filled and buy_asset_window is not None:
-            opened_buy_asset_windows.add(buy_asset_window)
+        if filled and buy_exposure is not None:
+            opened_buy_exposures.add(buy_exposure)
 
 
 def _auto_execution_sort_key(candidate: AutoExecutionCandidate) -> tuple[int, Decimal, Decimal, Decimal, str]:

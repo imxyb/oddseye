@@ -94,6 +94,8 @@ class CryptoThresholdV2ParserSection(BaseModel):
     min_confidence: float = 0.85
     touch_min_confidence: float = 0.90
     block_on_ambiguity: bool = True
+    semantic_provider: Literal["regex", "deepseek"] = "regex"
+    semantic_min_confidence: float = 0.90
 
 
 class CryptoThresholdV2MarketFiltersSection(BaseModel):
@@ -224,6 +226,10 @@ class EnvSettings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./prediction_radar.db"
     redis_url: str | None = "redis://localhost:6379/0"
     codex_api_key: str = ""
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-v4-flash"
+    deepseek_timeout_seconds: float = 12.0
     jwt_secret: str = "change-me-change-me-change-me-change-me"
     jwt_expires_days: int = 7
     log_level: str = "INFO"
@@ -235,6 +241,10 @@ class Settings(BaseModel):
     database_url: str
     redis_url: str | None
     codex_api_key: str
+    deepseek_api_key: str
+    deepseek_base_url: str
+    deepseek_model: str
+    deepseek_timeout_seconds: float
     jwt_secret: str
     jwt_expires_days: int
     log_level: str
@@ -295,6 +305,10 @@ def get_settings() -> Settings:
         database_url=env.database_url,
         redis_url=env.redis_url,
         codex_api_key=env.codex_api_key,
+        deepseek_api_key=env.deepseek_api_key,
+        deepseek_base_url=env.deepseek_base_url,
+        deepseek_model=env.deepseek_model,
+        deepseek_timeout_seconds=env.deepseek_timeout_seconds,
         jwt_secret=env.jwt_secret,
         jwt_expires_days=env.jwt_expires_days,
         log_level=env.log_level,

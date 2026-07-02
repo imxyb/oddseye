@@ -7,6 +7,14 @@ from types import SimpleNamespace
 from app.strategies.crypto_v2.spec_parser import CryptoMarketSpecParserV2
 
 
+class _FakeSemanticParser:
+    def __init__(self, payload: dict):
+        self.payload = payload
+
+    def parse(self, *, question: str, event_question: str | None, resolution_source: str | None) -> dict:
+        return self.payload
+
+
 def test_parse_btc_close_above() -> None:
     closes_at = datetime(2026, 7, 31, 23, 59, 59, tzinfo=UTC)
     result = CryptoMarketSpecParserV2().parse(
@@ -75,6 +83,34 @@ def test_parse_btc_hit_below() -> None:
     assert result.spec.asset == "BTC"
     assert result.spec.market_type == "hit_below"
     assert result.spec.threshold == Decimal("95000")
+
+
+def test_llm_semantics_can_classify_dip_to_as_hit_below() -> None:
+    result = CryptoMarketSpecParserV2(
+        semantic_parser=_FakeSemanticParser(
+            {
+                "asset": "BTC",
+                "market_type": "hit_below",
+                "threshold": "56000",
+                "settlement": "touch_intraperiod",
+                "confidence": 0.96,
+                "unsupported_flags": [],
+            }
+        )
+    ).parse(
+        _market(
+            "m-llm-dip",
+            "Will Bitcoin dip to $56,000 June 29-July 5?",
+            closes_at=datetime(2026, 7, 6, 0, 0, tzinfo=UTC),
+        ),
+        _event("e-llm-dip"),
+    )
+
+    assert not result.failed
+    assert result.spec is not None
+    assert result.spec.market_type == "hit_below"
+    assert result.spec.threshold == Decimal("56000")
+    assert result.spec.raw_parse["source"] == "llm_semantic_v1"
 
 
 def test_parse_range_close() -> None:

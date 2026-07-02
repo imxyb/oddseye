@@ -303,7 +303,7 @@ strategies:
         assert order_by_signal[high_signal.id].status == "filled"
         assert low_signal.raw_json["auto_order"] == {
             "status": "skipped",
-            "reason": "asset_window_cycle_buy_already_selected",
+            "reason": "asset_horizon_position_limit_reached",
         }
     finally:
         get_settings.cache_clear()
@@ -311,7 +311,7 @@ strategies:
 
 
 @pytest.mark.asyncio
-async def test_auto_execution_allows_one_new_buy_per_asset_window_even_when_two_slots_allowed(
+async def test_auto_execution_blocks_opposite_direction_buy_in_same_asset_window(
     monkeypatch,
     tmp_path,
 ) -> None:
@@ -332,7 +332,7 @@ strategies:
     from app.services.signals import AutoExecutionCandidate, _auto_execute_v2_signals
 
     get_settings.cache_clear()
-    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-one-window-buy.db'}")
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-opposite-direction-buy.db'}")
     async with sessionmaker.bind.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     try:
@@ -384,8 +384,21 @@ strategies:
                 market_quality_score=Decimal("80"),
                 reason_codes=["EXECUTION_GATE_PASSED"],
                 risk_flags=[],
-                raw_json={"market_spec": {"asset": "BTC", "window_end": window_end}},
+                raw_json={
+                    "market_spec": {
+                        "asset": "BTC",
+                        "market_type": "hit_below",
+                        "window_end": window_end,
+                    }
+                },
             )
+            above_signal.raw_json = {
+                "market_spec": {
+                    "asset": "BTC",
+                    "market_type": "hit_above",
+                    "window_end": window_end,
+                }
+            }
             session.add_all([above_signal, below_signal])
             await session.flush()
 
@@ -407,8 +420,120 @@ strategies:
         assert orders[0].status in {"filled", "open"}
         assert below_signal.raw_json["auto_order"] == {
             "status": "skipped",
-            "reason": "asset_window_cycle_buy_already_selected",
+            "reason": "asset_window_opposite_direction_already_selected",
         }
+    finally:
+        get_settings.cache_clear()
+        await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_auto_execution_allows_same_direction_buys_in_same_asset_window(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "app.yaml"
+    config_path.write_text(
+        """
+strategies:
+  crypto_threshold_v2:
+    paper_execution:
+      auto_execute_signals: true
+      max_asset_horizon_positions: 2
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_CONFIG_PATH", str(config_path))
+
+    from app.core.config import get_settings
+    from app.services.signals import AutoExecutionCandidate, _auto_execute_v2_signals
+
+    get_settings.cache_clear()
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-same-direction-buy.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with sessionmaker() as session:
+            venue = Venue(code="POLYMARKET", name="Polymarket")
+            account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("10000"))
+            session.add_all([venue, account])
+            await session.flush()
+            low_market = await _btc_market_with_snapshot(
+                session,
+                venue,
+                "btc-reach-59000",
+                "Will Bitcoin reach $59,000 on July 10, 2026?",
+            )
+            high_market = await _btc_market_with_snapshot(
+                session,
+                venue,
+                "btc-reach-70000",
+                "Will Bitcoin reach $70,000 on July 10, 2026?",
+            )
+            window_end = "2026-07-10T00:00:00+00:00"
+            low_signal = ModelSignal(
+                market_id=low_market.id,
+                ts=datetime.now(UTC),
+                strategy_code="crypto_threshold_v2",
+                action="BUY",
+                side="YES",
+                model_probability=Decimal("0.65"),
+                executable_price=Decimal("0.05"),
+                edge=Decimal("0.15"),
+                confidence=Decimal("0.90"),
+                suggested_notional=Decimal("10"),
+                market_quality_score=Decimal("80"),
+                reason_codes=["EXECUTION_GATE_PASSED"],
+                risk_flags=[],
+                raw_json={
+                    "market_spec": {
+                        "asset": "BTC",
+                        "market_type": "hit_above",
+                        "window_end": window_end,
+                    }
+                },
+            )
+            high_signal = ModelSignal(
+                market_id=high_market.id,
+                ts=datetime.now(UTC),
+                strategy_code="crypto_threshold_v2",
+                action="BUY",
+                side="YES",
+                model_probability=Decimal("0.70"),
+                executable_price=Decimal("0.05"),
+                edge=Decimal("0.20"),
+                confidence=Decimal("0.90"),
+                suggested_notional=Decimal("10"),
+                market_quality_score=Decimal("80"),
+                reason_codes=["EXECUTION_GATE_PASSED"],
+                risk_flags=[],
+                raw_json={
+                    "market_spec": {
+                        "asset": "BTC",
+                        "market_type": "hit_above",
+                        "window_end": window_end,
+                    }
+                },
+            )
+            session.add_all([low_signal, high_signal])
+            await session.flush()
+
+            await _auto_execute_v2_signals(
+                session,
+                account=account,
+                candidates=[
+                    AutoExecutionCandidate(model_signal=low_signal, current_position=None),
+                    AutoExecutionCandidate(model_signal=high_signal, current_position=None),
+                ],
+            )
+            await session.commit()
+
+            orders = (
+                await session.execute(select(PaperOrder).order_by(PaperOrder.created_at.asc(), PaperOrder.id.asc()))
+            ).scalars().all()
+
+        assert {order.signal_id for order in orders} == {low_signal.id, high_signal.id}
+        assert all(order.status in {"filled", "open"} for order in orders)
     finally:
         get_settings.cache_clear()
         await sessionmaker.bind.dispose()

@@ -10,6 +10,7 @@ from app.core.time import utcnow
 from app.db.models import MarketSnapshot, PredictionEvent, PredictionMarket
 from app.strategies.base import StrategySignal
 from app.strategies.crypto_v2.execution_gate import ExecutionGateConfig, evaluate_execution_gate
+from app.strategies.crypto_v2.exposure import buy_exposure_direction, condition_direction
 from app.strategies.crypto_v2.lifecycle import PositionState, decide_lifecycle_action
 from app.strategies.crypto_v2.probability import estimate_probability
 from app.strategies.crypto_v2.sizing import SizingConfig, suggested_notional
@@ -468,6 +469,10 @@ class CryptoThresholdV2Strategy:
             "market_spec": {
                 "asset": spec.asset,
                 "market_type": spec.market_type,
+                "condition_direction": condition_direction(spec.market_type),
+                "exposure_direction": (
+                    buy_exposure_direction(spec.market_type, side) if side in {"YES", "NO"} else None
+                ),
                 "threshold": str(spec.threshold) if spec.threshold is not None else None,
                 "lower_threshold": str(spec.lower_threshold) if spec.lower_threshold is not None else None,
                 "upper_threshold": str(spec.upper_threshold) if spec.upper_threshold is not None else None,

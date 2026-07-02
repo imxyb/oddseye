@@ -18,6 +18,8 @@ crypto_threshold_v2:
     min_confidence: 0.85
     touch_min_confidence: 0.90
     block_on_ambiguity: true
+    semantic_provider: regex
+    semantic_min_confidence: 0.90
   market_filters:
     min_quality_score: 70
     touch_min_quality_score: 75
