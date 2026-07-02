@@ -356,7 +356,6 @@ auth:
       password_hash: "$2b$12$replace_with_bcrypt_hash"
       role: admin
   token_expires_days: 7
-  ip_allowlist: []
 
 codex:
   endpoint: "https://graph.codex.io/graphql"
@@ -1738,7 +1737,7 @@ daily_budget_rollup
 5. JWT secret 至少 32 字节随机字符串。
 6. Docker Compose 不对公网暴露 PostgreSQL。
 7. 如部署到 VPS，FastAPI 前面加 Nginx + HTTPS。
-8. IP allowlist 或 VPN 是固定出口 IP 场景的可选加固；如果需要支持 iPhone 蜂窝网络、VPN 或其他动态出口，`auth.ip_allowlist` 可以保持为空。
+8. V1 访问控制依赖 HTTPS、强密码和 JWT；业务层不做网络来源限制，以支持 iPhone 蜂窝网络、VPN 和其他动态出口。
 
 ### 15.2 配置文件账号密码生成
 
@@ -1936,7 +1935,7 @@ VPS：
   iPhone Expo Go → HTTPS Nginx → FastAPI → Postgres/Redis → Codex
 ```
 
-如果部署到公网，必须加 HTTPS 和强密码；IP allowlist/VPN 是可选加固，适合固定出口 IP 场景。
+如果部署到公网，必须加 HTTPS 和强密码；V1 业务层不按客户端网络来源拦截请求。
 
 ---
 

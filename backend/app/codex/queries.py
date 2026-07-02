@@ -16,10 +16,15 @@ query PredictionCategories {
 """
 
 DISCOVER_EVENTS = """
-query DiscoverEvents($categories: [String!], $limit: Int!, $offset: Int!) {
+query DiscoverEvents(
+  $categories: [String!]
+  $protocols: [PredictionMarketProtocol!]
+  $limit: Int!
+  $offset: Int!
+) {
   filterPredictionEvents(
     filters: {
-      protocol: [POLYMARKET, KALSHI]
+      protocol: $protocols
       status: [OPEN]
       categories: $categories
     }
@@ -158,4 +163,3 @@ query PredictionMarketBars($marketId: String!, $from: Int!, $to: Int!, $resoluti
   }
 }
 """
-

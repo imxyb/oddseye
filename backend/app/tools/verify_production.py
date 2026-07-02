@@ -268,7 +268,7 @@ def verify_production(
             "market_id": first_market,
             "side": "BUY",
             "outcome_index": manual_outcome_index,
-            "limit_price": str(manual_ask),
+            "limit_price": str(_buy_limit_for_fill(manual_ask)),
             "quantity": str(VERIFY_PAPER_QUANTITY),
         },
     )
@@ -294,7 +294,7 @@ def verify_production(
             "market_id": first_market,
             "side": "SELL",
             "outcome_index": manual_outcome_index,
-            "limit_price": str(manual_bid),
+            "limit_price": str(_sell_limit_for_fill(manual_bid)),
             "quantity": str(VERIFY_PAPER_QUANTITY),
         },
     )
@@ -375,7 +375,7 @@ def verify_production(
         token=token,
         json_body={
             "notional": str(VERIFY_PAPER_NOTIONAL),
-            "limit_price": str(signal_limit_price),
+            "limit_price": str(_buy_limit_for_fill(signal_limit_price)),
         },
     )
     _require_paper_buy_fill(
@@ -429,7 +429,7 @@ def verify_production(
             "market_id": signal_market_id,
             "side": "SELL",
             "outcome_index": signal_outcome_index,
-            "limit_price": str(signal_bid),
+            "limit_price": str(_sell_limit_for_fill(signal_bid)),
             "quantity": str(signal_quantity),
         },
     )
@@ -765,6 +765,14 @@ def _require_paper_sell_fill(
     _require(fill.get("snapshot_id") is not None, name, "fill missing snapshot_id")
     fill_price = _decimal_payload_value(fill.get("price"), name, "fill price")
     _require(fill_price <= reference_price, name, "SELL fill price is above conservative reference price")
+
+
+def _buy_limit_for_fill(reference_price: Decimal) -> Decimal:
+    return min((reference_price * Decimal("1.01")).quantize(Decimal("0.000001")), Decimal("0.999999"))
+
+
+def _sell_limit_for_fill(reference_price: Decimal) -> Decimal:
+    return max((reference_price * Decimal("0.99")).quantize(Decimal("0.000001")), Decimal("0.000001"))
 
 
 def _first_orderable_buy_signal(payload: dict[str, Any]) -> dict[str, Any]:

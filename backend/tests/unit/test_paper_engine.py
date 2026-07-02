@@ -114,6 +114,74 @@ def test_order_does_not_fill_when_limit_is_not_executable() -> None:
     assert account.cash == Decimal("10000")
 
 
+def test_buy_order_does_not_fill_if_slippage_breaks_limit() -> None:
+    engine = PaperTradingEngine(slippage_bps=25, fee_bps=0)
+    account = PaperAccountState(id=uuid4(), cash=Decimal("10000"), starting_cash=Decimal("10000"))
+    market_id = uuid4()
+
+    result = engine.try_fill(
+        account,
+        PaperOrderRequest(
+            account_id=account.id,
+            market_id=market_id,
+            side="BUY",
+            outcome_index=0,
+            limit_price=Decimal("0.501"),
+            quantity=Decimal("100"),
+        ),
+        SnapshotQuote(
+            id=30,
+            market_id=market_id,
+            ts=datetime.now(timezone.utc),
+            outcome0_best_bid=Decimal("0.49"),
+            outcome0_best_ask=Decimal("0.50"),
+            outcome1_best_bid=Decimal("0.49"),
+            outcome1_best_ask=Decimal("0.50"),
+        ),
+    )
+
+    assert result is None
+    assert account.cash == Decimal("10000")
+
+
+def test_sell_order_does_not_fill_if_slippage_breaks_limit() -> None:
+    engine = PaperTradingEngine(slippage_bps=25, fee_bps=0)
+    account_id = uuid4()
+    market_id = uuid4()
+    account = PaperAccountState(id=account_id, cash=Decimal("9950"), starting_cash=Decimal("10000"))
+    engine.open_position(
+        account_id=account_id,
+        market_id=market_id,
+        outcome_index=0,
+        quantity=Decimal("100"),
+        avg_price=Decimal("0.50"),
+    )
+
+    result = engine.try_fill(
+        account,
+        PaperOrderRequest(
+            account_id=account_id,
+            market_id=market_id,
+            side="SELL",
+            outcome_index=0,
+            limit_price=Decimal("0.499"),
+            quantity=Decimal("100"),
+        ),
+        SnapshotQuote(
+            id=31,
+            market_id=market_id,
+            ts=datetime.now(timezone.utc),
+            outcome0_best_bid=Decimal("0.50"),
+            outcome0_best_ask=Decimal("0.51"),
+            outcome1_best_bid=Decimal("0.49"),
+            outcome1_best_ask=Decimal("0.50"),
+        ),
+    )
+
+    assert result is None
+    assert account.cash == Decimal("9950")
+
+
 def test_sell_without_inventory_does_not_fill_or_credit_cash() -> None:
     engine = PaperTradingEngine(slippage_bps=25, fee_bps=0)
     account = PaperAccountState(id=uuid4(), cash=Decimal("10000"), starting_cash=Decimal("10000"))

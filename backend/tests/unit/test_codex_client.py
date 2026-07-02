@@ -101,6 +101,8 @@ async def test_discover_events_clamps_limit_to_codex_maximum() -> None:
         http_client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
     )
 
-    await client.discover_events(["crypto"], limit=500)
+    await client.discover_events(["crypto"], protocols=["POLYMARKET"], limit=500)
 
-    assert captured_variables == [{"categories": ["crypto"], "limit": 200, "offset": 0}]
+    assert captured_variables == [
+        {"categories": ["crypto"], "protocols": ["POLYMARKET"], "limit": 200, "offset": 0}
+    ]

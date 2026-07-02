@@ -4,7 +4,7 @@ from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user
@@ -25,9 +25,17 @@ class PaperOrderRequest(BaseModel):
     account_id: str | None = None
     market_id: str
     side: str
-    outcome_index: int
-    limit_price: Decimal
-    quantity: Decimal
+    outcome_index: int = Field(ge=0, le=1)
+    limit_price: Decimal = Field(gt=Decimal("0"), lt=Decimal("1"))
+    quantity: Decimal = Field(gt=Decimal("0"))
+
+    @field_validator("side")
+    @classmethod
+    def validate_side(cls, value: str) -> str:
+        normalized = value.upper()
+        if normalized not in {"BUY", "SELL"}:
+            raise ValueError("side must be BUY or SELL")
+        return normalized
 
 
 @router.post("/orders")

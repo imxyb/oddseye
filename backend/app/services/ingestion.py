@@ -109,6 +109,7 @@ async def discover_events(
     client = client or create_codex_client()
     data = await client.discover_events(
         categories=settings.config.radar.enabled_categories,
+        protocols=settings.config.radar.protocols,
         limit=settings.config.radar.max_markets_per_ingest,
         offset=0,
         job_run_id=job_run_id,

@@ -97,7 +97,7 @@ async def test_manual_orders_are_allowed_on_low_quality_market_but_signal_orders
                 market_id=market.id,
                 side="BUY",
                 outcome_index=0,
-                limit_price=Decimal("0.50"),
+                limit_price=Decimal("0.502"),
                 quantity=Decimal("10"),
             ),
         )
@@ -105,11 +105,11 @@ async def test_manual_orders_are_allowed_on_low_quality_market_but_signal_orders
 
         blocked = await create_order_from_signal(
             session,
-            signal_id=signal.id,
-            account_id=account.id,
-            notional=Decimal("5"),
-            limit_price=Decimal("0.50"),
-        )
+        signal_id=signal.id,
+        account_id=account.id,
+        notional=Decimal("5"),
+        limit_price=Decimal("0.502"),
+    )
         assert blocked["order"]["status"] == "rejected"
         assert blocked["order"]["reason"] == "market_quality_below_gate"
     await sessionmaker.bind.dispose()
@@ -185,7 +185,7 @@ async def test_buy_signal_can_create_filled_paper_order_at_conservative_ask(tmp_
             signal_id=signal.id,
             account_id=account.id,
             notional=Decimal("5"),
-            limit_price=Decimal("0.50"),
+            limit_price=Decimal("0.502"),
         )
 
         assert response["order"]["status"] == "filled"
@@ -465,7 +465,7 @@ async def test_market_risk_uses_cash_plus_open_position_mark_value_as_equity(tmp
                 market_id=market.id,
                 side="BUY",
                 outcome_index=0,
-                limit_price=Decimal("0.50"),
+                limit_price=Decimal("0.502"),
                 quantity=Decimal("390"),
             ),
         )

@@ -132,6 +132,9 @@ async def compute_crypto_signals(
         if parsed is None:
             signal = _ignore_signal(strategy.strategy_code, market, snapshot)
             raw_signal_json = {"snapshot_id": signal.snapshot_id}
+        elif parsed.condition_type == "hit_above":
+            signal = _touch_market_observe_signal(strategy.strategy_code, market, snapshot)
+            raw_signal_json = {"snapshot_id": signal.snapshot_id}
         else:
             raw = market.raw_json or {}
             asset_data = await _asset_market_data(provider, asset_cache, parsed.asset)
@@ -248,6 +251,30 @@ def _ignore_signal(strategy_code: str, market: PredictionMarket, snapshot: Marke
         market_quality_score=snapshot.market_quality_score,
         reason_codes=[],
         risk_flags=["PARSER_FAILED"],
+        expires_at=now + SIGNAL_TTL,
+        snapshot_id=snapshot.id,
+    )
+
+
+def _touch_market_observe_signal(
+    strategy_code: str,
+    market: PredictionMarket,
+    snapshot: MarketSnapshot,
+) -> StrategySignal:
+    now = utcnow()
+    return StrategySignal(
+        market_id=market.id,
+        strategy_code=strategy_code,
+        action="OBSERVE",
+        side=None,
+        model_probability=None,
+        executable_price=None,
+        edge=None,
+        confidence=Decimal("0.30"),
+        suggested_notional=None,
+        market_quality_score=snapshot.market_quality_score,
+        reason_codes=["CRYPTO_THRESHOLD_TOUCH_MARKET_DETECTED"],
+        risk_flags=["BARRIER_TOUCH_MODEL_NOT_IMPLEMENTED"],
         expires_at=now + SIGNAL_TTL,
         snapshot_id=snapshot.id,
     )

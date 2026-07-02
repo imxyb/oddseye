@@ -108,9 +108,13 @@ async def radar_markets(
         .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
         .join(Venue, PredictionMarket.venue_id == Venue.id)
     )
+    market_rows = list(rows.all())
+    market_ids = [market.id for market, _event, _venue in market_rows]
+    latest_snapshots = await latest_snapshots_for_markets(session, market_ids)
+    latest_signals = await latest_signals_for_markets(session, market_ids)
     items = []
     newest_snapshot: datetime | None = None
-    for market, event, venue in rows.all():
+    for market, event, venue in market_rows:
         if is_watchlist and not market_matches_watchlist(event, market, watchlist):
             continue
         if category and not is_watchlist and not _category_matches(category, event.categories or []):
@@ -119,8 +123,8 @@ async def radar_markets(
             continue
         if q and q.lower() not in market.question.lower():
             continue
-        snapshot = await latest_snapshot_for_market(session, market.id)
-        signal = await latest_signal_for_market(session, market.id)
+        snapshot = latest_snapshots.get(market.id)
+        signal = latest_signals.get(market.id)
         if min_quality is not None and (
             snapshot is None
             or snapshot.market_quality_score is None
@@ -164,6 +168,40 @@ async def radar_markets(
         "total": total,
         "freshness": _freshness(newest_snapshot, summary),
     }
+
+
+async def latest_snapshots_for_markets(
+    session: AsyncSession, market_ids: list[str]
+) -> dict[str, MarketSnapshot]:
+    if not market_ids:
+        return {}
+    result = await session.execute(
+        select(MarketSnapshot)
+        .where(MarketSnapshot.market_id.in_(market_ids))
+        .order_by(MarketSnapshot.market_id.asc(), MarketSnapshot.ts.desc())
+    )
+    latest: dict[str, MarketSnapshot] = {}
+    for snapshot in result.scalars():
+        latest.setdefault(snapshot.market_id, snapshot)
+    return latest
+
+
+async def latest_signals_for_markets(
+    session: AsyncSession, market_ids: list[str]
+) -> dict[str, ModelSignal]:
+    if not market_ids:
+        return {}
+    now = utcnow()
+    result = await session.execute(
+        select(ModelSignal)
+        .where(ModelSignal.market_id.in_(market_ids))
+        .where(or_(ModelSignal.expires_at.is_(None), ModelSignal.expires_at > now))
+        .order_by(ModelSignal.market_id.asc(), ModelSignal.ts.desc())
+    )
+    latest: dict[str, ModelSignal] = {}
+    for signal in result.scalars():
+        latest.setdefault(signal.market_id, signal)
+    return latest
 
 
 async def market_detail(session: AsyncSession, market_id: str) -> dict[str, Any] | None:

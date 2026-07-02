@@ -3,7 +3,7 @@ from __future__ import annotations
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user
@@ -15,8 +15,8 @@ router = APIRouter(prefix="/signals", tags=["signals"])
 
 class SignalPaperOrderRequest(BaseModel):
     account_id: str | None = None
-    notional: Decimal
-    limit_price: Decimal
+    notional: Decimal = Field(gt=Decimal("0"))
+    limit_price: Decimal = Field(gt=Decimal("0"), lt=Decimal("1"))
 
 
 @router.get("")
@@ -48,4 +48,3 @@ async def signal_paper_order(
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-

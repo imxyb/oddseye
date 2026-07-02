@@ -112,6 +112,11 @@ class PaperTradingEngine:
             return None
 
         fill_price = self._apply_slippage(executable, order.side)
+        if order.side.upper() == "BUY" and fill_price > order.limit_price:
+            return None
+        if order.side.upper() == "SELL" and fill_price < order.limit_price:
+            return None
+
         notional = (fill_price * order.quantity).quantize(MONEY_Q)
         fee = (notional * self.fee_rate).quantize(MONEY_Q)
         if order.side.upper() == "BUY":

@@ -2,6 +2,18 @@ import * as SecureStore from "expo-secure-store";
 
 const ACCESS_TOKEN_KEY = "access_token";
 
+export class ApiError extends Error {
+  status: number;
+  detail?: unknown;
+
+  constructor(status: number, message: string, detail?: unknown) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
 function getApiBaseUrl(): string {
   const baseUrl = process.env.EXPO_PUBLIC_API_BASE_URL;
 
@@ -58,8 +70,7 @@ export async function apiFetch<T>(
   });
 
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`API ${response.status}: ${text}`);
+    throw await toApiError(response);
   }
 
   if (response.status === 204) {
@@ -67,6 +78,34 @@ export async function apiFetch<T>(
   }
 
   return response.json() as Promise<T>;
+}
+
+async function toApiError(response: Response): Promise<ApiError> {
+  const fallback = "Request failed";
+  const text = await response.text();
+  if (!text) {
+    return new ApiError(response.status, fallback);
+  }
+
+  try {
+    const detail = JSON.parse(text) as unknown;
+    return new ApiError(response.status, messageFromDetail(detail) ?? fallback, detail);
+  } catch {
+    return new ApiError(response.status, fallback);
+  }
+}
+
+function messageFromDetail(detail: unknown): string | undefined {
+  if (!detail || typeof detail !== "object" || !("detail" in detail)) {
+    return undefined;
+  }
+
+  const value = (detail as { detail: unknown }).detail;
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return undefined;
 }
 
 export { ACCESS_TOKEN_KEY };

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.codex.client import UsageRecord
@@ -35,20 +35,14 @@ async def usage_summary(session: AsyncSession) -> dict[str, Any]:
     now = utcnow()
     start_day = datetime(now.year, now.month, now.day, tzinfo=UTC)
     start_month = datetime(now.year, now.month, 1, tzinfo=UTC)
-    result = await session.execute(select(ApiUsageLedger))
-    records = list(result.scalars())
-    jobs_result = await session.execute(select(JobRun))
-    job_runs = list(jobs_result.scalars())
-    today = [record for record in records if _ensure_aware(record.ts) >= start_day]
-    month = [record for record in records if _ensure_aware(record.ts) >= start_month]
     config = get_settings().config
     settings = config.codex
     return {
         "provider": "codex",
-        "today_requests": sum(record.request_count for record in today),
-        "month_requests": sum(record.request_count for record in month),
-        "today_failed": sum(record.request_count for record in today if record.status != "success"),
-        "month_failed": sum(record.request_count for record in month if record.status != "success"),
+        "today_requests": await _request_count_since(session, start_day),
+        "month_requests": await _request_count_since(session, start_month),
+        "today_failed": await _request_count_since(session, start_day, failed_only=True),
+        "month_failed": await _request_count_since(session, start_month, failed_only=True),
         "fetch_profile": settings.fetch_profile,
         "usage_policy": settings.usage_policy,
         "radar_daily_target_requests": settings.radar_daily_target_requests,
@@ -57,7 +51,7 @@ async def usage_summary(session: AsyncSession) -> dict[str, Any]:
         "external_daily_usage_estimate": settings.external_daily_usage_estimate,
         "global_monthly_reference_budget": settings.global_monthly_reference_budget,
         "jobs": config.jobs.model_dump(),
-        "recent_jobs": _latest_job_runs(job_runs),
+        "recent_jobs": await _latest_job_runs(session),
     }
 
 
@@ -73,12 +67,41 @@ def _ensure_aware(value: datetime) -> datetime:
     return value.replace(tzinfo=UTC) if value.tzinfo is None else value
 
 
-def _latest_job_runs(job_runs: list[JobRun]) -> list[dict[str, Any]]:
-    latest_by_name: dict[str, JobRun] = {}
-    for job_run in job_runs:
-        existing = latest_by_name.get(job_run.job_name)
-        if existing is None or _ensure_aware(job_run.started_at) > _ensure_aware(existing.started_at):
-            latest_by_name[job_run.job_name] = job_run
+async def _request_count_since(
+    session: AsyncSession,
+    start: datetime,
+    failed_only: bool = False,
+) -> int:
+    conditions = [ApiUsageLedger.provider == "codex", ApiUsageLedger.ts >= start]
+    if failed_only:
+        conditions.append(ApiUsageLedger.status != "success")
+    result = await session.execute(
+        select(func.coalesce(func.sum(ApiUsageLedger.request_count), 0)).where(*conditions)
+    )
+    return int(result.scalar_one() or 0)
+
+
+async def _latest_job_runs(session: AsyncSession) -> list[dict[str, Any]]:
+    latest_started = (
+        select(
+            JobRun.job_name.label("job_name"),
+            func.max(JobRun.started_at).label("started_at"),
+        )
+        .group_by(JobRun.job_name)
+        .subquery()
+    )
+    result = await session.execute(
+        select(JobRun)
+        .join(
+            latest_started,
+            and_(
+                JobRun.job_name == latest_started.c.job_name,
+                JobRun.started_at == latest_started.c.started_at,
+            ),
+        )
+        .order_by(JobRun.started_at.desc())
+    )
+    job_runs = list(result.scalars())
     return [
         {
             "job_name": job_run.job_name,
@@ -88,9 +111,5 @@ def _latest_job_runs(job_runs: list[JobRun]) -> list[dict[str, Any]]:
             "records_processed": job_run.records_processed,
             "codex_requests_used": job_run.codex_requests_used,
         }
-        for job_run in sorted(
-            latest_by_name.values(),
-            key=lambda item: _ensure_aware(item.started_at),
-            reverse=True,
-        )
+        for job_run in job_runs
     ]

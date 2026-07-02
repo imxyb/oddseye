@@ -161,6 +161,54 @@ paper:
         assert settings_response.json()["jobs"]["hot_market_snapshot_seconds"] == 120
         assert settings_response.json()["jobs"]["signal_seconds"] == 900
 
+        invalid_order_bodies = [
+            {
+                "market_id": "00000000-0000-0000-0000-000000000001",
+                "side": "BUY",
+                "outcome_index": 0,
+                "limit_price": "0",
+                "quantity": "10",
+            },
+            {
+                "market_id": "00000000-0000-0000-0000-000000000001",
+                "side": "BUY",
+                "outcome_index": 0,
+                "limit_price": "1",
+                "quantity": "10",
+            },
+            {
+                "market_id": "00000000-0000-0000-0000-000000000001",
+                "side": "BUY",
+                "outcome_index": 0,
+                "limit_price": "0.58",
+                "quantity": "0",
+            },
+            {
+                "market_id": "00000000-0000-0000-0000-000000000001",
+                "side": "BUY",
+                "outcome_index": 2,
+                "limit_price": "0.58",
+                "quantity": "10",
+            },
+            {
+                "market_id": "00000000-0000-0000-0000-000000000001",
+                "side": "LONG",
+                "outcome_index": 0,
+                "limit_price": "0.58",
+                "quantity": "10",
+            },
+        ]
+        for body in invalid_order_bodies:
+            invalid_order = await client.post("/paper/orders", headers=headers, json=body)
+            assert invalid_order.status_code == 422
+
+        invalid_signal_order = await client.post(
+            "/signals/non-existent-signal/paper-order",
+            headers=headers,
+            json={"notional": "0", "limit_price": "1"},
+        )
+        assert invalid_signal_order.status_code == 422
+
         order = await client.post(
             "/paper/orders",
             headers=headers,

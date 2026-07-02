@@ -3,6 +3,15 @@
 Self-hosted prediction market radar and paper trading system for Crypto and
 Macro/Economics markets.
 
+## V1 Scope
+
+- Data source: Codex GraphQL.
+- Product categories: Crypto and Macro/Economics.
+- Mobile app: Expo Go iOS app.
+- Trading mode: paper trading only.
+- Authentication: backend config users + JWT.
+- Codex usage: tracked for visibility, not hard-capped in code.
+
 ## Local Backend
 
 ```bash
@@ -85,12 +94,10 @@ cd /root/oddseye/backend
 python -m app.tools.hash_password
 ```
 
-`auth.ip_allowlist` is optional hardening for fixed public client networks.
-Leave it empty when the iOS app should work from cellular, VPN, or other dynamic
-networks; if enabled, include every trusted public client CIDR or those clients
-will receive `403 IP not allowed`. `auth.trusted_proxy_cidrs` controls which
-local reverse proxies may supply `X-Forwarded-For`/`X-Real-IP`; keep your Caddy
-proxy source there when it forwards traffic to the API.
+Security boundaries for V1 are HTTPS at the reverse proxy, strong config-backed
+passwords, a long `JWT_SECRET`, and bearer-token authentication on every API
+except `/health` and `/auth/login`. Keep Codex keys, database URLs, JWT secrets,
+and any future trading secrets on the backend only.
 
 5. Run migrations and start services:
 

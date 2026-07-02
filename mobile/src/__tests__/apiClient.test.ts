@@ -38,14 +38,36 @@ describe("apiFetch", () => {
     );
   });
 
-  it("throws a readable error when the backend returns a failure", async () => {
+  it("throws a friendly ApiError when the backend returns JSON detail", async () => {
     getItemAsync.mockResolvedValue(null);
     vi.mocked(global.fetch).mockResolvedValue(
-      new Response("nope", { status: 500 }),
+      new Response(JSON.stringify({ detail: "Invalid credentials" }), {
+        status: 401,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const { ApiError, apiFetch } = await import("../api/client");
+
+    let thrown: unknown;
+    try {
+      await apiFetch("/auth/me");
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(ApiError);
+    expect(thrown).toHaveProperty("message", "Invalid credentials");
+  });
+
+  it("does not show raw response bodies for non-JSON failures", async () => {
+    getItemAsync.mockResolvedValue(null);
+    vi.mocked(global.fetch).mockResolvedValue(
+      new Response("<html>traceback</html>", { status: 500 }),
     );
 
     const { apiFetch } = await import("../api/client");
 
-    await expect(apiFetch("/auth/me")).rejects.toThrow("API 500: nope");
+    await expect(apiFetch("/auth/me")).rejects.toThrow("Request failed");
   });
 });

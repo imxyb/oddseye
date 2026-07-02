@@ -270,7 +270,10 @@ class JobRun(Base):
 
 class ApiUsageLedger(Base):
     __tablename__ = "api_usage_ledger"
-    __table_args__ = (Index("idx_api_usage_ledger_ts", "ts"),)
+    __table_args__ = (
+        Index("idx_api_usage_ledger_ts", "ts"),
+        Index("idx_api_usage_ledger_provider_ts", "provider", "ts"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

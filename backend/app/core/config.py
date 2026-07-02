@@ -24,8 +24,6 @@ class AuthUser(BaseModel):
 class AuthSection(BaseModel):
     users: list[AuthUser] = Field(default_factory=list)
     token_expires_days: int = 7
-    ip_allowlist: list[str] = Field(default_factory=list)
-    trusted_proxy_cidrs: list[str] = Field(default_factory=lambda: ["127.0.0.1/32", "::1/128"])
 
 
 class CodexSection(BaseModel):

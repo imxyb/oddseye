@@ -98,16 +98,27 @@ class CodexClient:
     async def discover_events(
         self,
         categories: list[str],
+        protocols: list[str] | None = None,
         limit: int = 100,
         offset: int = 0,
         job_run_id: str | None = None,
     ) -> dict[str, Any]:
+        protocol_values = protocols or ["POLYMARKET", "KALSHI"]
         return await self.call(
             "discovery",
             queries.DISCOVER_EVENTS,
-            {"categories": categories, "limit": _codex_limit(limit), "offset": offset},
+            {
+                "categories": categories,
+                "protocols": protocol_values,
+                "limit": _codex_limit(limit),
+                "offset": offset,
+            },
             job_run_id=job_run_id,
-            metadata={"query_name": "DiscoverEvents", "category_count": len(categories)},
+            metadata={
+                "query_name": "DiscoverEvents",
+                "category_count": len(categories),
+                "protocol_count": len(protocol_values),
+            },
         )
 
     async def event_markets(

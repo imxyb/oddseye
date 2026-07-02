@@ -55,7 +55,7 @@ def parse_crypto_threshold(question: str) -> ParsedCryptoThreshold | None:
     upper = question.upper()
     if any(token in upper for token in ("BELOW", "UNDER", "DIP", "DROP", "FALL")):
         condition = "close_below"
-    elif "HIT" in upper or "REACH" in upper:
+    elif "HIT" in upper or "REACH" in upper or "TOUCH" in upper:
         condition = "hit_above"
     else:
         condition = "close_above"
@@ -107,6 +107,9 @@ class CryptoThresholdStrategy:
         if parsed is None:
             risk_flags.append("PARSER_FAILED")
             return self._observe(context, confidence, reason_codes, risk_flags)
+        if parsed.condition_type == "hit_above":
+            reason_codes.append("CRYPTO_THRESHOLD_TOUCH_MARKET_DETECTED")
+            risk_flags.append("BARRIER_TOUCH_MODEL_NOT_IMPLEMENTED")
         if confidence < Decimal("0.75"):
             risk_flags.append("PARSER_CONFIDENCE_LOW")
         if context.market_quality_score < Decimal("65"):
