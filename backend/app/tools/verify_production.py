@@ -59,6 +59,15 @@ class ProductionClient(Protocol):
     ) -> str:
         ...
 
+    def response_status(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: str | None = None,
+    ) -> int:
+        ...
+
 
 class HttpProductionClient:
     def __init__(self, base_url: str, timeout_seconds: int = 20):
@@ -118,6 +127,28 @@ class HttpProductionClient:
         except httpx.HTTPError as exc:
             raise ProductionVerificationError(f"{method} {path} failed: {exc}") from exc
 
+    def response_status(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: str | None = None,
+    ) -> int:
+        headers = {}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        try:
+            response = httpx.request(
+                method,
+                f"{self.base_url}{path}",
+                headers=headers,
+                timeout=self.timeout_seconds,
+                trust_env=False,
+            )
+            return response.status_code
+        except httpx.HTTPError as exc:
+            raise ProductionVerificationError(f"{method} {path} failed: {exc}") from exc
+
 
 def verify_production(
     *,
@@ -145,6 +176,9 @@ def verify_production(
     current_user = production_client.request("GET", "/auth/me", token=token)
     _require_authenticated_user(current_user, expected_username=username)
     checks.append(VerificationCheck("auth_me", True, f"{username} token resolved to configured user"))
+
+    _require_authenticated_endpoints(production_client)
+    checks.append(VerificationCheck("auth_required", True, "protected endpoints reject missing bearer token"))
 
     radar = production_client.request("GET", "/radar/markets?limit=3", token=token)
     radar_count = _require_items(radar, "radar")
@@ -490,6 +524,23 @@ def _require_authenticated_user(payload: dict[str, Any], *, expected_username: s
     role = payload.get("role")
     _require(username == expected_username, "auth_me", "token resolved to unexpected username")
     _require(isinstance(role, str) and role, "auth_me", "token resolved without role")
+
+
+def _require_authenticated_endpoints(client: ProductionClient) -> None:
+    protected_paths = (
+        ("GET", "/auth/me"),
+        ("GET", "/radar/markets?limit=1"),
+        ("GET", "/signals?limit=1"),
+        ("GET", "/paper/positions"),
+        ("GET", "/settings/usage"),
+    )
+    for method, path in protected_paths:
+        status_code = client.response_status(method, path)
+        _require(
+            status_code == 401,
+            "auth_required",
+            f"{method} {path} returned {status_code}; expected 401 without bearer token",
+        )
 
 
 def _first_market_id(payload: dict[str, Any]) -> str:

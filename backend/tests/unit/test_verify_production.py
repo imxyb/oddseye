@@ -14,10 +14,12 @@ class FakeProductionClient:
         self,
         responses: dict[tuple[str, str], dict | list[dict]],
         text_responses: dict[tuple[str, str], str] | None = None,
+        status_responses: dict[tuple[str, str], int] | None = None,
     ):
         self.responses = responses
         self.text_responses = text_responses or {}
-        self.calls: list[tuple[str, str, str | None, dict | None]] = []
+        self.status_responses = status_responses if status_responses is not None else _successful_status_responses()
+        self.calls: list[tuple[str, str, str | None, dict | None] | tuple[str, str, str, str | None]] = []
 
     def request(
         self,
@@ -42,6 +44,16 @@ class FakeProductionClient:
     ) -> str:
         self.calls.append((method, path, token, None))
         return self.text_responses[(method, path)]
+
+    def response_status(
+        self,
+        method: str,
+        path: str,
+        *,
+        token: str | None = None,
+    ) -> int:
+        self.calls.append(("STATUS", method, path, token))
+        return self.status_responses[(method, path)]
 
 
 def _freshness() -> dict:
@@ -353,8 +365,22 @@ def _successful_text_responses() -> dict[tuple[str, str], str]:
     }
 
 
+def _successful_status_responses() -> dict[tuple[str, str], int]:
+    return {
+        ("GET", "/auth/me"): 401,
+        ("GET", "/radar/markets?limit=1"): 401,
+        ("GET", "/signals?limit=1"): 401,
+        ("GET", "/paper/positions"): 401,
+        ("GET", "/settings/usage"): 401,
+    }
+
+
 def test_verify_production_checks_documented_endpoints() -> None:
-    client = FakeProductionClient(_successful_responses(), _successful_text_responses())
+    client = FakeProductionClient(
+        _successful_responses(),
+        _successful_text_responses(),
+        _successful_status_responses(),
+    )
 
     checks = verify_production(
         base_url="https://oddseye.fun/",
@@ -367,6 +393,7 @@ def test_verify_production_checks_documented_endpoints() -> None:
         "health",
         "login",
         "auth_me",
+        "auth_required",
         "radar",
         "radar_freshness",
         "watchlist_markets",
@@ -405,6 +432,11 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/health", None, None),
         ("POST", "/auth/login", None, {"username": "admin", "password": "secret"}),
         ("GET", "/auth/me", "token-123", None),
+        ("STATUS", "GET", "/auth/me", None),
+        ("STATUS", "GET", "/radar/markets?limit=1", None),
+        ("STATUS", "GET", "/signals?limit=1", None),
+        ("STATUS", "GET", "/paper/positions", None),
+        ("STATUS", "GET", "/settings/usage", None),
         ("GET", "/radar/markets?limit=3", "token-123", None),
         ("GET", "/radar/markets?category=watchlist&limit=5", "token-123", None),
         ("GET", "/radar/markets?category=crypto&sort=quality&limit=5", "token-123", None),
@@ -470,6 +502,24 @@ def test_verify_production_checks_documented_endpoints() -> None:
         ("GET", "/paper/positions", "token-123", None),
         ("GET", "/paper/trades.csv", "token-123", None),
     ]
+
+
+def test_verify_production_rejects_public_business_endpoint() -> None:
+    statuses = _successful_status_responses()
+    statuses[("GET", "/signals?limit=1")] = 200
+    client = FakeProductionClient(
+        _successful_responses(),
+        _successful_text_responses(),
+        statuses,
+    )
+
+    with pytest.raises(ProductionVerificationError, match="auth_required"):
+        verify_production(
+            base_url="https://oddseye.fun",
+            username="admin",
+            password="secret",
+            client=client,
+        )
 
 
 def test_verify_production_rejects_empty_live_signal_response() -> None:
