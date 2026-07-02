@@ -79,6 +79,7 @@ query EventMarkets($eventIds: [String!], $limit: Int!) {
       id
       eventLabel
       status
+      resolutionSource
       market {
         id
         eventId
@@ -89,6 +90,10 @@ query EventMarkets($eventIds: [String!], $limit: Int!) {
         status
         closesAt
         resolvesAt
+      }
+      predictionMarket {
+        rules
+        rules2
       }
       outcome0 {
         label

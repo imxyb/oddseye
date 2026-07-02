@@ -69,10 +69,12 @@ async def test_codex_client_records_failed_usage() -> None:
 @pytest.mark.asyncio
 async def test_event_markets_clamps_limit_to_codex_maximum() -> None:
     captured_variables: list[dict[str, Any]] = []
+    captured_queries: list[str] = []
 
     async def handler(request: httpx.Request) -> httpx.Response:
         payload = json.loads(request.content)
         captured_variables.append(payload["variables"])
+        captured_queries.append(payload["query"])
         return httpx.Response(200, json={"data": {"filterPredictionMarkets": {"results": []}}})
 
     client = CodexClient(
@@ -84,6 +86,10 @@ async def test_event_markets_clamps_limit_to_codex_maximum() -> None:
     await client.event_markets(["event-1"], limit=500)
 
     assert captured_variables == [{"eventIds": ["event-1"], "limit": 200}]
+    assert "resolutionSource" in captured_queries[0]
+    assert "predictionMarket" in captured_queries[0]
+    assert "rules" in captured_queries[0]
+    assert "rules2" in captured_queries[0]
 
 
 @pytest.mark.asyncio

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+import re
 from typing import Any
 
 
@@ -84,10 +85,51 @@ def outcome_token_id(outcome: dict[str, Any]) -> str | None:
 
 
 def resolution_source(row: dict[str, Any], market: dict[str, Any]) -> str | None:
-    for key in ("resolutionSource", "resolution_source", "rules", "resolutionRules"):
-        value = market.get(key) or row.get(key)
-        if value:
-            return str(value)
+    prediction_market = row.get("predictionMarket") or {}
+    for value in (
+        market.get("resolutionSource"),
+        row.get("resolutionSource"),
+        market.get("resolution_source"),
+        row.get("resolution_source"),
+        prediction_market.get("resolutionSource"),
+    ):
+        source = _clean_resolution_source(value)
+        if source:
+            return source
+    for value in (
+        prediction_market.get("rules"),
+        prediction_market.get("rules2"),
+        market.get("rules"),
+        row.get("rules"),
+        market.get("resolutionRules"),
+        row.get("resolutionRules"),
+    ):
+        source = _resolution_source_from_rules(value)
+        if source:
+            return source
+    return None
+
+
+def _clean_resolution_source(value: Any) -> str | None:
+    if isinstance(value, list):
+        parts = [_clean_resolution_source(item) for item in value]
+        joined = ", ".join(part for part in parts if part)
+        return joined or None
+    if value is None:
+        return None
+    source = str(value).strip()
+    if not source or source.lower() in {"unknown", "none", "null", "n/a", "na"}:
+        return None
+    return source
+
+
+def _resolution_source_from_rules(value: Any) -> str | None:
+    rules = _clean_resolution_source(value)
+    if rules is None:
+        return None
+    for sentence in re.split(r"(?<=[.!?])\s+", rules):
+        if "resolution source" in sentence.lower():
+            return sentence.strip()
     return None
 
 
