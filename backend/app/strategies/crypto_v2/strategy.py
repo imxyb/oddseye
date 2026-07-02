@@ -24,6 +24,7 @@ from app.strategies.crypto_v2.spec import (
 from app.strategies.crypto_v2.spec_parser import CryptoMarketSpecParserV2
 
 SIGNAL_TTL = timedelta(minutes=15)
+HOLD_SIGNAL_TTL = timedelta(hours=1)
 STRATEGY_CODE = "crypto_threshold_v2"
 STRATEGY_VERSION = "2.0.0"
 
@@ -261,7 +262,7 @@ class CryptoThresholdV2Strategy:
             market_quality_score=market_quality,
             reason_codes=[*final_gate.reason_codes, *lifecycle.reason_codes],
             risk_flags=lifecycle.risk_flags,
-            expires_at=now + SIGNAL_TTL,
+            expires_at=_signal_expires_at(now, lifecycle.action),
             snapshot_id=snapshot.id,
         )
         return V2StrategyResult(
@@ -350,7 +351,7 @@ class CryptoThresholdV2Strategy:
             market_quality_score=snapshot.market_quality_score or Decimal("0"),
             reason_codes=[*selected_gate.reason_codes, *lifecycle.reason_codes],
             risk_flags=lifecycle.risk_flags,
-            expires_at=now + SIGNAL_TTL,
+            expires_at=_signal_expires_at(now, lifecycle.action),
             snapshot_id=snapshot.id,
         )
         trace_gate = ExecutionDecision(
@@ -627,3 +628,9 @@ def _age_seconds(ts) -> float:
 
 def _dedupe(items: list[str]) -> list[str]:
     return list(dict.fromkeys(items))
+
+
+def _signal_expires_at(now, action: str):
+    if action == "HOLD":
+        return now + HOLD_SIGNAL_TTL
+    return now + SIGNAL_TTL

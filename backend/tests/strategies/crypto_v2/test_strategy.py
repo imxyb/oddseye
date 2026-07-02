@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 
+from app.strategies.crypto_v2.lifecycle import PositionState
 from app.strategies.crypto_v2.spec import CryptoAssetSnapshot, CryptoMarketSpec, PredictionOrderBookSnapshot
 from app.strategies.crypto_v2.strategy import CryptoThresholdV2Strategy
 
@@ -67,6 +68,35 @@ def test_strategy_trace_records_orderbook_source_and_token_ids() -> None:
     assert orderbook["no_source"] == "polymarket_clob"
     assert orderbook["yes_token_id"] == "yes-token"
     assert orderbook["no_token_id"] == "no-token"
+
+
+def test_strategy_hold_signal_stays_visible_across_slow_compute_cycles() -> None:
+    now = datetime.now(UTC)
+    result = CryptoThresholdV2Strategy().evaluate(
+        market=SimpleNamespace(id="market-1"),
+        event=SimpleNamespace(id="event-1"),
+        snapshot=SimpleNamespace(
+            id=1,
+            market_quality_score=Decimal("90"),
+        ),
+        spec=_spec(now),
+        asset_snapshot=_asset_snapshot(now),
+        yes_orderbook=_orderbook(now, "YES", ask=Decimal("0.25"), bid=Decimal("0.24")),
+        no_orderbook=_orderbook(now, "NO", ask=Decimal("0.74"), bid=Decimal("0.73")),
+        current_position=PositionState(
+            side="YES",
+            quantity=Decimal("100"),
+            avg_price=Decimal("0.20"),
+            mark_price=Decimal("0.24"),
+            opened_probability=0.65,
+            last_buy_at=now - timedelta(hours=1),
+        ),
+        equity=Decimal("10000"),
+    )
+
+    assert result.signal.action == "HOLD"
+    assert result.signal.expires_at is not None
+    assert result.signal.expires_at - now >= timedelta(minutes=45)
 
 
 def _spec(now: datetime) -> CryptoMarketSpec:
