@@ -3,7 +3,7 @@
 Self-hosted prediction market radar and paper trading system for Crypto and
 Macro/Economics markets.
 
-## V1 Scope
+## Current Scope
 
 - Data source: Codex GraphQL.
 - Product categories: Crypto and Macro/Economics.
@@ -94,7 +94,7 @@ cd /root/oddseye/backend
 python -m app.tools.hash_password
 ```
 
-Security boundaries for V1 are HTTPS at the reverse proxy, strong config-backed
+Security boundaries are HTTPS at the reverse proxy, strong config-backed
 passwords, a long `JWT_SECRET`, and bearer-token authentication on every API
 except `/health` and `/auth/login`. Keep Codex keys, database URLs, JWT secrets,
 and any future trading secrets on the backend only.
@@ -107,7 +107,7 @@ docker compose -f docker-compose.prod.yml up -d --build
 ```
 
 6. Add the domain to Caddy on the same host. Caddy is the HTTPS reverse proxy for
-this deployment and replaces the Nginx example in the V1 engineering document:
+this deployment and replaces the earlier Nginx example in the engineering document:
 
 ```caddyfile
 oddseye.fun {
@@ -131,7 +131,7 @@ After migrations and service startup, run the production verifier from the built
 API image. It checks health, login, authenticated `/auth/me` identity, Radar live
 data, Crypto and Macro/Economics category data, documented Radar sort
 dimensions, market detail quotes, quality score explanations, chart bars, active
-`crypto_threshold_v1` crypto threshold signals, `macro_calendar_v1`
+`crypto_threshold_v2` crypto threshold signals, `macro_calendar_v1`
 Macro/Economics OBSERVE-only signals, usage counters, recent ingestion job runs,
 paper performance metrics, strategy/category review rollups, paper positions,
 and paper trade traceability in one repeatable command:
@@ -204,7 +204,7 @@ curl -fsS "https://oddseye.fun/signals?limit=3" \
 
 curl -fsS "https://oddseye.fun/signals?category=crypto&limit=20" \
   -H "Authorization: Bearer $TOKEN" \
-  | python3 -c 'import json,sys; items=json.load(sys.stdin)["items"]; assert any(i.get("strategy_code")=="crypto_threshold_v1" and i.get("category")=="crypto" and any(asset in i.get("question","").upper() for asset in ("BTC","ETH","SOL")) for i in items); print("crypto threshold signal ok")'
+  | python3 -c 'import json,sys; items=json.load(sys.stdin)["items"]; assert any(i.get("strategy_code")=="crypto_threshold_v2" and i.get("category")=="crypto" and any(asset in i.get("question","").upper() for asset in ("BTC","ETH","SOL")) for i in items); print("crypto threshold signal ok")'
 
 curl -fsS -X POST "https://oddseye.fun/paper/orders" \
   -H "Authorization: Bearer $TOKEN" \
@@ -253,7 +253,7 @@ Expected production state:
   real Codex data, not `seed-*` demo rows.
 - Market detail includes `market_quality_score` plus quality components,
   `reason_codes`, `risk_flags`, and `passes_paper_gate`.
-- `/signals` returns `crypto_threshold_v1` signals for crypto threshold markets
+- `/signals` returns `crypto_threshold_v2` signals for crypto threshold markets
   once supported assets are enriched with public BTC/ETH/SOL market data.
 - `/signals?category=economics` returns `macro_calendar_v1` OBSERVE-only
   signals for Macro/Economics markets without auto-trade fields.
@@ -289,12 +289,12 @@ cd mobile
 ODDSEYE_MOBILE_SMOKE_PASSWORD='REPLACE_WITH_PASSWORD' npm run verify:expo-go
 ```
 
-The final V1 mobile acceptance still requires a physical iPhone running Expo Go:
+The final mobile acceptance still requires a physical iPhone running Expo Go:
 start `npx expo start`, open the project in Expo Go, log in with the configured
 admin credentials, and confirm the app reaches the authenticated tabs without a
 `Could not load` or login error state.
 
-V1's supported mobile development path is Expo Go. Any generated `mobile/ios`
+The supported mobile development path is Expo Go. Any generated `mobile/ios`
 directory is local-only for ad hoc native/Xcode experiments and is intentionally
 ignored by git.
 
@@ -327,4 +327,4 @@ ODDSEYE_FORBIDDEN_BUNDLE_STRINGS='SECRET_1,SECRET_2' \
 - Keep `CODEX_API_KEY` and `JWT_SECRET` only in backend `.env`.
 - Mobile `.env` only uses public `EXPO_PUBLIC_*` values.
 - The app stores JWT in SecureStore and never stores the Codex API key.
-- V1 paper trading uses bid/ask based fills, never last price fills.
+- Paper trading uses bid/ask based fills, never last price fills.

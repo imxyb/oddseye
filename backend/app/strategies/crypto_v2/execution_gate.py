@@ -21,14 +21,19 @@ class ExecutionGateConfig:
     orderbook_seconds: int = 15
     spot_seconds: int = 30
     depth_multiplier: float = 1.5
+    min_parser_confidence: float = 0.85
+    touch_min_parser_confidence: float = 0.90
     min_quality_score: float = 70
     touch_min_quality_score: float = 75
     min_hours_to_close: float = 2
     max_days_to_close: float = 21
     min_trade_price: float = 0.03
     max_trade_price: float = 0.97
+    min_exec_edge: float = 0.06
     min_stress_edge: float = 0.025
+    touch_min_exec_edge: float = 0.08
     touch_min_stress_edge: float = 0.04
+    uncertainty_penalty_multiplier: float = 1.0
 
 
 def evaluate_execution_gate(
@@ -57,12 +62,19 @@ def evaluate_execution_gate(
         float(orderbook.spread or 0),
         spec.market_type,
         (spec.window_end - now).total_seconds() / 3600,
-        estimate.uncertainty_penalty,
+        estimate.uncertainty_penalty * config.uncertainty_penalty_multiplier,
     )
+    configured_min_edge = config.touch_min_exec_edge if spec.market_type.startswith("hit_") else config.min_exec_edge
+    required = max(required, configured_min_edge)
 
     if spec.protocol.upper() != "POLYMARKET":
         risk_flags.append("VENUE_NOT_POLYMARKET")
-    if spec.parser_confidence < (0.90 if spec.market_type.startswith("hit_") else 0.85):
+    parser_min = (
+        config.touch_min_parser_confidence
+        if spec.market_type.startswith("hit_")
+        else config.min_parser_confidence
+    )
+    if spec.parser_confidence < parser_min:
         risk_flags.append("PARSER_CONFIDENCE_LOW")
     if spec.has_blocking_ambiguity:
         risk_flags.append("BLOCKING_AMBIGUITY")

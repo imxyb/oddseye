@@ -21,7 +21,6 @@ from app.db.models import (
 )
 from app.services.bootstrap import ensure_default_paper_account
 from app.services.asset_market_data import (
-    AssetMarketData,
     AssetMarketDataProvider,
     BinanceAssetMarketDataProvider,
 )
@@ -29,15 +28,17 @@ from app.services.crypto_market_data import CryptoMarketDataService
 from app.services.market_data import CATEGORY_ALIASES
 from app.services.paper_trading import PaperOrderInput, create_paper_order
 from app.services.prediction_orderbook import PredictionOrderBookService
-from app.strategies.crypto_threshold import (
-    CryptoMarketContext,
-    CryptoThresholdStrategy,
-    SIGNAL_TTL,
-    parse_crypto_threshold,
-)
 from app.strategies.base import StrategySignal
 from app.strategies.crypto_v2.lifecycle import PositionState
-from app.strategies.crypto_v2.strategy import CryptoThresholdV2Strategy, V2StrategyResult
+from app.strategies.crypto_v2.spec import CryptoMarketSpec
+from app.strategies.crypto_v2.spec_parser import CryptoMarketSpecParserV2
+from app.strategies.crypto_v2.strategy import (
+    SIGNAL_TTL,
+    STRATEGY_CODE,
+    STRATEGY_VERSION,
+    CryptoThresholdV2Strategy,
+    V2StrategyResult,
+)
 from app.strategies.macro_calendar import macro_v1_observe_only_signal
 
 
@@ -161,7 +162,10 @@ async def compute_crypto_signals(
     session: AsyncSession,
     asset_market_data_provider: AssetMarketDataProvider | None = None,
 ) -> int:
-    strategy = CryptoThresholdV2Strategy()
+    strategy_config = get_settings().config.strategies.crypto_threshold_v2
+    if not strategy_config.enabled:
+        return 0
+    strategy = CryptoThresholdV2Strategy(config=strategy_config)
     provider = asset_market_data_provider or BinanceAssetMarketDataProvider()
     owns_provider = asset_market_data_provider is None
     market_data = CryptoMarketDataService(provider)
@@ -186,24 +190,43 @@ async def compute_crypto_signals(
             continue
         if snapshot.market_quality_score is None:
             continue
+        current_position = await _current_position_state(session, account.id, market.id)
         parsed = strategy.parser.parse(market, event)
         if parsed.failed or parsed.spec is None:
-            result = strategy.blocked_from_parse(market, event, snapshot)
+            if current_position is not None and strategy_config.exits.parser_block_exit_enabled:
+                result = _v2_exit_result_from_blocked(
+                    market,
+                    snapshot,
+                    current_position,
+                    reason="PARSER_FAILED",
+                    risk_flags=parsed.ambiguity_flags or ["PARSER_FAILED"],
+                )
+            else:
+                result = strategy.blocked_from_parse(market, event, snapshot)
         else:
             if parsed.spec.asset not in asset_cache:
                 asset_cache[parsed.spec.asset] = await market_data.get_asset_snapshot(parsed.spec.asset)
             asset_snapshot = asset_cache[parsed.spec.asset]
             if asset_snapshot is None:
-                result = _v2_blocked_result(
-                    market,
-                    snapshot,
-                    reason="ASSET_MARKET_DATA_UNAVAILABLE",
-                    risk_flags=["ASSET_MARKET_DATA_UNAVAILABLE"],
-                )
+                if current_position is not None and strategy_config.exits.asset_data_unavailable_exit_enabled:
+                    result = _v2_exit_result_from_blocked(
+                        market,
+                        snapshot,
+                        current_position,
+                        reason="ASSET_MARKET_DATA_UNAVAILABLE",
+                        risk_flags=["ASSET_MARKET_DATA_UNAVAILABLE"],
+                    )
+                else:
+                    result = _v2_blocked_result(
+                        market,
+                        snapshot,
+                        reason="ASSET_MARKET_DATA_UNAVAILABLE",
+                        risk_flags=["ASSET_MARKET_DATA_UNAVAILABLE"],
+                    )
             else:
                 yes_orderbook = await orderbooks.get_orderbook(market, snapshot, "YES")
                 no_orderbook = await orderbooks.get_orderbook(market, snapshot, "NO")
-                current_position = await _current_position_state(session, account.id, market.id)
+                equity = await _paper_equity(session, account)
                 result = strategy.evaluate(
                     market=market,
                     event=event,
@@ -213,7 +236,15 @@ async def compute_crypto_signals(
                     yes_orderbook=yes_orderbook,
                     no_orderbook=no_orderbook,
                     current_position=current_position,
-                    equity=await _paper_equity(session, account),
+                    equity=equity,
+                    existing_exposure_multiplier=await _asset_horizon_exposure_multiplier(
+                        session,
+                        account_id=account.id,
+                        spec=parsed.spec,
+                        equity=equity,
+                        max_exposure_pct=strategy_config.sizing.max_asset_horizon_exposure_pct,
+                        parser=strategy.parser,
+                    ),
                 )
         model_signal = _model_signal_from_result(result)
         session.add(model_signal)
@@ -223,88 +254,6 @@ async def compute_crypto_signals(
             account=account,
             model_signal=model_signal,
             current_position=await _current_position_state(session, account.id, market.id),
-        )
-        count += 1
-    if owns_provider and hasattr(provider, "aclose"):
-        await provider.aclose()
-    return count
-
-
-async def compute_crypto_signals_v1(
-    session: AsyncSession,
-    asset_market_data_provider: AssetMarketDataProvider | None = None,
-) -> int:
-    strategy = CryptoThresholdStrategy()
-    provider = asset_market_data_provider or BinanceAssetMarketDataProvider()
-    owns_provider = asset_market_data_provider is None
-    asset_cache: dict[str, AssetMarketData | dict | None] = {}
-    rows = await session.execute(
-        select(PredictionMarket, PredictionEvent, MarketSnapshot)
-        .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
-        .join(MarketSnapshot, MarketSnapshot.market_id == PredictionMarket.id)
-        .order_by(MarketSnapshot.ts.desc())
-    )
-    seen: set[str] = set()
-    count = 0
-    for market, event, snapshot in rows.all():
-        if market.id in seen:
-            continue
-        seen.add(market.id)
-        if "crypto" not in [str(c).lower() for c in event.categories or []]:
-            continue
-        if snapshot.market_quality_score is None or market.closes_at is None:
-            continue
-        parsed = parse_crypto_threshold(market.question)
-        if parsed is None:
-            signal = _ignore_signal(strategy.strategy_code, market, snapshot)
-            raw_signal_json = {"snapshot_id": signal.snapshot_id}
-        elif parsed.condition_type == "hit_above":
-            signal = _touch_market_observe_signal(strategy.strategy_code, market, snapshot)
-            raw_signal_json = {"snapshot_id": signal.snapshot_id}
-        else:
-            raw = market.raw_json or {}
-            asset_data = await _asset_market_data(provider, asset_cache, parsed.asset)
-            strategy_inputs = _strategy_inputs(raw, asset_data)
-            if strategy_inputs is None:
-                continue
-            signal = strategy.evaluate(
-                CryptoMarketContext(
-                    market_id=market.id,
-                    question=market.question,
-                    now=utcnow(),
-                    deadline=market.closes_at,
-                    current_price=strategy_inputs["current_price"],
-                    annualized_volatility=strategy_inputs["annualized_volatility"],
-                    yes_ask=snapshot.outcome0_best_ask,
-                    no_ask=snapshot.outcome1_best_ask,
-                    market_quality_score=snapshot.market_quality_score,
-                    parser_confidence=Decimal("0.86"),
-                    snapshot_id=snapshot.id,
-                )
-            )
-            raw_signal_json = {
-                "snapshot_id": signal.snapshot_id,
-                "asset_market_data": strategy_inputs["metadata"],
-            }
-        signal = await _position_adjusted_signal(session, signal, snapshot)
-        session.add(
-            ModelSignal(
-                market_id=market.id,
-                ts=utcnow(),
-                strategy_code=signal.strategy_code,
-                action=signal.action,
-                side=signal.side,
-                model_probability=signal.model_probability,
-                executable_price=signal.executable_price,
-                edge=signal.edge,
-                confidence=signal.confidence,
-                suggested_notional=signal.suggested_notional,
-                market_quality_score=signal.market_quality_score,
-                reason_codes=signal.reason_codes,
-                risk_flags=signal.risk_flags,
-                expires_at=signal.expires_at,
-                raw_json=raw_signal_json,
-            )
         )
         count += 1
     if owns_provider and hasattr(provider, "aclose"):
@@ -343,7 +292,7 @@ def _v2_blocked_result(
     now = utcnow()
     signal = StrategySignal(
         market_id=market.id,
-        strategy_code="crypto_threshold_v2",
+        strategy_code=STRATEGY_CODE,
         action="BLOCKED",
         side=None,
         model_probability=None,
@@ -360,8 +309,8 @@ def _v2_blocked_result(
     return V2StrategyResult(
         signal=signal,
         raw_json={
-            "strategy_code": "crypto_threshold_v2",
-            "strategy_version": "2.0.0",
+            "strategy_code": STRATEGY_CODE,
+            "strategy_version": STRATEGY_VERSION,
             "snapshot_id": snapshot.id,
             "decision": {
                 "action": "BLOCKED",
@@ -370,6 +319,55 @@ def _v2_blocked_result(
                 "risk_flags": risk_flags,
             },
             "decision_trace": [reason],
+        },
+    )
+
+
+def _v2_exit_result_from_blocked(
+    market: PredictionMarket,
+    snapshot: MarketSnapshot,
+    current_position: PositionState,
+    *,
+    reason: str,
+    risk_flags: list[str],
+) -> V2StrategyResult:
+    now = utcnow()
+    executable_price = _exit_price(snapshot, 0 if current_position.side == "YES" else 1)
+    suggested_notional = (
+        (current_position.quantity * executable_price).quantize(Decimal("0.000001"))
+        if executable_price is not None
+        else None
+    )
+    signal = StrategySignal(
+        market_id=market.id,
+        strategy_code=STRATEGY_CODE,
+        action="EXIT",
+        side=current_position.side,
+        model_probability=None,
+        executable_price=executable_price,
+        edge=None,
+        confidence=Decimal("0"),
+        suggested_notional=suggested_notional,
+        market_quality_score=snapshot.market_quality_score or Decimal("0"),
+        reason_codes=[reason],
+        risk_flags=risk_flags,
+        expires_at=now + SIGNAL_TTL,
+        snapshot_id=snapshot.id,
+    )
+    return V2StrategyResult(
+        signal=signal,
+        raw_json={
+            "strategy_code": STRATEGY_CODE,
+            "strategy_version": STRATEGY_VERSION,
+            "snapshot_id": snapshot.id,
+            "decision": {
+                "action": "EXIT",
+                "side": current_position.side,
+                "limit_price": float(executable_price) if executable_price is not None else None,
+                "blocked_reason": reason,
+                "risk_flags": risk_flags,
+            },
+            "decision_trace": [reason, "EXIT"],
         },
     )
 
@@ -443,6 +441,51 @@ async def _paper_equity(session: AsyncSession, account: PaperAccount) -> Decimal
     return account.cash + position_value
 
 
+async def _asset_horizon_exposure_multiplier(
+    session: AsyncSession,
+    *,
+    account_id: str,
+    spec: CryptoMarketSpec,
+    equity: Decimal,
+    max_exposure_pct: float,
+    parser: CryptoMarketSpecParserV2,
+) -> float:
+    if equity <= 0 or max_exposure_pct <= 0:
+        return 0.0
+    exposure_limit = equity * Decimal(str(max_exposure_pct))
+    if exposure_limit <= 0:
+        return 0.0
+    rows = await session.execute(
+        select(PaperPosition, PredictionMarket, PredictionEvent)
+        .join(PredictionMarket, PaperPosition.market_id == PredictionMarket.id)
+        .join(PredictionEvent, PredictionMarket.event_id == PredictionEvent.id)
+        .where(
+            PaperPosition.account_id == account_id,
+            PaperPosition.status == "open",
+            PaperPosition.quantity > 0,
+        )
+    )
+    target_bucket = _horizon_bucket(spec.window_end)
+    current_exposure = Decimal("0")
+    for position, market, event in rows.all():
+        parsed = parser.parse(market, event)
+        if parsed.failed or parsed.spec is None:
+            continue
+        if parsed.spec.asset != spec.asset or _horizon_bucket(parsed.spec.window_end) != target_bucket:
+            continue
+        mark = position.mark_price or position.avg_price
+        current_exposure += position.quantity * mark
+    remaining = exposure_limit - current_exposure
+    if remaining <= 0:
+        return 0.0
+    return float(min(Decimal("1"), remaining / exposure_limit))
+
+
+def _horizon_bucket(value: datetime) -> str:
+    iso = value.date().isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
 async def _auto_execute_v2_signal(
     session: AsyncSession,
     *,
@@ -450,7 +493,14 @@ async def _auto_execute_v2_signal(
     model_signal: ModelSignal,
     current_position: PositionState | None,
 ) -> None:
-    if model_signal.strategy_code != "crypto_threshold_v2":
+    strategy_config = get_settings().config.strategies.crypto_threshold_v2
+    if model_signal.strategy_code != STRATEGY_CODE:
+        return
+    if (
+        not strategy_config.enabled
+        or strategy_config.mode == "observe_only"
+        or not strategy_config.paper_execution.auto_execute_signals
+    ):
         return
     if model_signal.action not in {"BUY", "EXIT", "REDUCE"}:
         return
@@ -485,14 +535,10 @@ async def _auto_execute_v2_signal(
 
 
 def _auto_limit_price(executable_price: Decimal, side: str) -> Decimal:
-    slippage = Decimal(get_settings().config.paper.slippage_bps) / Decimal("10000")
+    slippage = get_settings().config.strategies.crypto_threshold_v2.paper_execution.price_slippage_ct
     if side == "BUY":
-        return min(executable_price * (Decimal("1") + slippage), Decimal("0.99")).quantize(
-            Decimal("0.000001")
-        )
-    return max(executable_price * (Decimal("1") - slippage), Decimal("0.01")).quantize(
-        Decimal("0.000001")
-    )
+        return min(executable_price + slippage, Decimal("0.99")).quantize(Decimal("0.000001"))
+    return max(executable_price - slippage, Decimal("0.01")).quantize(Decimal("0.000001"))
 
 
 def _auto_order_quantity(
@@ -567,97 +613,6 @@ async def compute_macro_signals(session: AsyncSession) -> int:
         )
         count += 1
     return count
-
-
-def _ignore_signal(strategy_code: str, market: PredictionMarket, snapshot: MarketSnapshot) -> StrategySignal:
-    now = utcnow()
-    return StrategySignal(
-        market_id=market.id,
-        strategy_code=strategy_code,
-        action="IGNORE",
-        side=None,
-        model_probability=None,
-        executable_price=None,
-        edge=None,
-        confidence=Decimal("0"),
-        suggested_notional=None,
-        market_quality_score=snapshot.market_quality_score,
-        reason_codes=[],
-        risk_flags=["PARSER_FAILED"],
-        expires_at=now + SIGNAL_TTL,
-        snapshot_id=snapshot.id,
-    )
-
-
-def _touch_market_observe_signal(
-    strategy_code: str,
-    market: PredictionMarket,
-    snapshot: MarketSnapshot,
-) -> StrategySignal:
-    now = utcnow()
-    return StrategySignal(
-        market_id=market.id,
-        strategy_code=strategy_code,
-        action="OBSERVE",
-        side=None,
-        model_probability=None,
-        executable_price=None,
-        edge=None,
-        confidence=Decimal("0.30"),
-        suggested_notional=None,
-        market_quality_score=snapshot.market_quality_score,
-        reason_codes=["CRYPTO_THRESHOLD_TOUCH_MARKET_DETECTED"],
-        risk_flags=["BARRIER_TOUCH_MODEL_NOT_IMPLEMENTED"],
-        expires_at=now + SIGNAL_TTL,
-        snapshot_id=snapshot.id,
-    )
-
-
-async def _asset_market_data(
-    provider: AssetMarketDataProvider,
-    cache: dict[str, AssetMarketData | dict | None],
-    asset: str,
-) -> AssetMarketData | dict | None:
-    if asset not in cache:
-        try:
-            cache[asset] = await provider.asset_market_data(asset)
-        except Exception:
-            cache[asset] = None
-    return cache[asset]
-
-
-def _strategy_inputs(
-    raw: dict[str, Any],
-    asset_data: AssetMarketData | dict | None,
-) -> dict[str, Any] | None:
-    raw_inputs = raw.get("strategy_inputs") if isinstance(raw.get("strategy_inputs"), dict) else raw
-    current_price = raw_inputs.get("current_price")
-    volatility = raw_inputs.get("annualized_volatility")
-    source = "raw_json"
-    asset = raw_inputs.get("asset")
-    if (current_price is None or volatility is None) and asset_data is not None:
-        if isinstance(asset_data, AssetMarketData):
-            current_price = asset_data.current_price
-            volatility = asset_data.annualized_volatility
-            source = asset_data.source
-            asset = asset_data.asset
-        else:
-            current_price = asset_data.get("current_price")
-            volatility = asset_data.get("annualized_volatility")
-            source = asset_data.get("source", "asset_market_data")
-            asset = asset_data.get("asset")
-    if current_price is None or volatility is None:
-        return None
-    return {
-        "current_price": Decimal(str(current_price)),
-        "annualized_volatility": Decimal(str(volatility)),
-        "metadata": {
-            "asset": asset,
-            "current_price": str(current_price),
-            "annualized_volatility": str(volatility),
-            "source": source,
-        },
-    }
 
 
 async def _position_adjusted_signal(

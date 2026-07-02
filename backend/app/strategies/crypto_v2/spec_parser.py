@@ -78,15 +78,22 @@ class CryptoMarketSpecParserV2:
             lower_threshold = None
             upper_threshold = None
 
-        window_end = _deadline_from_market(market, event) or _parse_deadline(question)
+        record_deadline = _deadline_from_market(market, event)
+        parsed_deadline = _parse_deadline(question)
+        window_end = record_deadline or parsed_deadline
         if window_end is None:
             flags.append("NO_DEADLINE")
+        elif record_deadline is None and parsed_deadline is not None:
+            flags.append("UNCLEAR_TIMEZONE")
+
+        resolution_source = getattr(market, "resolution_source", None)
+        if not resolution_source:
+            flags.append("UNCLEAR_RESOLUTION_SOURCE")
 
         if flags:
             return ParseResult(spec=None, ambiguity_flags=flags, raw_parse=raw_parse)
 
         asset = next(iter(assets))
-        resolution_source = getattr(market, "resolution_source", None) or "Polymarket rules"
         confidence = _confidence(market_type, resolution_source)
         spec = CryptoMarketSpec(
             market_id=str(getattr(market, "id")),

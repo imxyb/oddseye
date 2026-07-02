@@ -43,7 +43,7 @@ async def test_list_signals_filters_before_applying_limit(tmp_path) -> None:
             ModelSignal(
                 market_id=market.id,
                 ts=datetime(2026, 7, 2, tzinfo=UTC),
-                strategy_code="crypto_threshold_v1",
+                strategy_code="crypto_threshold_v2",
                 action="OBSERVE",
                 confidence=Decimal("0.8"),
                 market_quality_score=Decimal("80"),
@@ -53,7 +53,7 @@ async def test_list_signals_filters_before_applying_limit(tmp_path) -> None:
             ModelSignal(
                 market_id=market.id,
                 ts=datetime(2026, 7, 1, tzinfo=UTC),
-                strategy_code="crypto_threshold_v1",
+                strategy_code="crypto_threshold_v2",
                 action="BUY",
                 side="YES",
                 executable_price=Decimal("0.50"),
@@ -68,7 +68,7 @@ async def test_list_signals_filters_before_applying_limit(tmp_path) -> None:
 
         assert response["total"] == 1
         assert response["items"][0]["action"] == "BUY"
-        assert response["items"][0]["strategy_code"] == "crypto_threshold_v1"
+        assert response["items"][0]["strategy_code"] == "crypto_threshold_v2"
     await sessionmaker.bind.dispose()
 
 
@@ -106,7 +106,7 @@ async def test_list_signals_excludes_expired_signals(tmp_path) -> None:
                 ModelSignal(
                     market_id=market.id,
                     ts=datetime.now(UTC),
-                    strategy_code="crypto_threshold_v1",
+                    strategy_code="crypto_threshold_v2",
                     action="BUY",
                     side="YES",
                     edge=Decimal("0.10"),
@@ -117,7 +117,7 @@ async def test_list_signals_excludes_expired_signals(tmp_path) -> None:
                 ModelSignal(
                     market_id=market.id,
                     ts=datetime.now(UTC) - timedelta(minutes=2),
-                    strategy_code="crypto_threshold_v1",
+                    strategy_code="crypto_threshold_v2",
                     action="BUY",
                     side="NO",
                     executable_price=Decimal("0.40"),
@@ -171,7 +171,7 @@ async def test_list_signals_hides_legacy_buy_signals_with_nonpositive_executable
                 ModelSignal(
                     market_id=market.id,
                     ts=datetime.now(UTC),
-                    strategy_code="crypto_threshold_v1",
+                    strategy_code="crypto_threshold_v2",
                     action="BUY",
                     side="YES",
                     executable_price=Decimal("0"),
@@ -183,7 +183,7 @@ async def test_list_signals_hides_legacy_buy_signals_with_nonpositive_executable
                 ModelSignal(
                     market_id=market.id,
                     ts=datetime.now(UTC) - timedelta(minutes=1),
-                    strategy_code="crypto_threshold_v1",
+                    strategy_code="crypto_threshold_v2",
                     action="BUY",
                     side="NO",
                     executable_price=Decimal("0.42"),

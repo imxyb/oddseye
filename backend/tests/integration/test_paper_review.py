@@ -52,7 +52,7 @@ async def test_review_rollups_include_win_rate_pnl_edge_and_drawdown(tmp_path) -
         signal = ModelSignal(
             market_id=market.id,
             ts=datetime.now(UTC),
-            strategy_code="crypto_threshold_v1",
+            strategy_code="crypto_threshold_v2",
             action="BUY",
             side="YES",
             edge=Decimal("0.10"),
@@ -103,7 +103,7 @@ async def test_review_rollups_include_win_rate_pnl_edge_and_drawdown(tmp_path) -
 
         report = await review_report(session)
 
-        strategy = _only_rollup(report["strategy_stats"], "crypto_threshold_v1")
+        strategy = _only_rollup(report["strategy_stats"], "crypto_threshold_v2")
         category = _only_rollup(report["category_stats"], "crypto")
         for rollup in (strategy, category):
             assert rollup["total_trades"] == 4

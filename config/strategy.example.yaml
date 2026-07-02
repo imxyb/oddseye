@@ -1,38 +1,70 @@
-crypto_threshold_v1:
-  enabled: false
-
 crypto_threshold_v2:
   enabled: true
-  mode: auto_simulated
+  mode: paper_only
   legacy_v1_enabled: false
   supported_assets:
     - BTC
     - ETH
     - SOL
+  market_types:
+    - close_above
+    - close_below
+    - hit_above
+    - hit_below
+    - range_close
   venue_allowlist:
     - POLYMARKET
   parser:
     min_confidence: 0.85
     touch_min_confidence: 0.90
     block_on_ambiguity: true
+  market_filters:
+    min_quality_score: 70
+    touch_min_quality_score: 75
+    min_hours_to_close: 2
+    max_days_to_close: 21
+    block_extreme_prices: true
+    min_trade_price: 0.03
+    max_trade_price: 0.97
+  data_freshness:
+    spot_seconds: 30
+    orderbook_seconds: 15
+    market_snapshot_seconds: 300
+    asset_snapshot_cache_seconds: 20
   edge:
     min_exec_edge: 0.06
     min_stress_edge: 0.025
     touch_min_exec_edge: 0.08
     touch_min_stress_edge: 0.04
     max_spread_ct: 0.04
+    uncertainty_penalty_multiplier: 1.0
   sizing:
     starting_equity: 10000
     min_notional: 5
     default_paper_notional_cap: 100
     kelly_fraction: 0.20
     max_position_pct: 0.01
+    max_event_exposure_pct: 0.02
+    max_asset_exposure_pct: 0.04
+    max_asset_horizon_exposure_pct: 0.025
+    max_category_exposure_pct: 0.15
+    max_daily_new_risk_pct: 0.02
+    depth_multiplier: 1.5
+  exits:
+    stale_data_exit_enabled: true
+    parser_block_exit_enabled: true
+    asset_data_unavailable_exit_enabled: true
   paper_execution:
     use_bid_ask: true
     auto_execute_signals: true
+    price_slippage_ct: 0.0025
     require_top_of_book_depth: true
   real_execution:
     enabled: false
+    require_manual_approval: true
+    max_order_notional: 10
+    order_ttl_seconds: 30
+    time_in_force: FAK
 
 macro_calendar_v1:
   enabled: true

@@ -34,6 +34,7 @@ class NormalizedMarket:
     image_thumb_url: str | None
     closes_at: datetime | None
     resolves_at: datetime | None
+    resolution_source: str | None
     outcomes: list[dict[str, Any]]
     snapshot: dict[str, Any]
     raw_json: dict[str, Any]
@@ -69,6 +70,25 @@ def normalize_outcome_label(label: str | None, outcome_index: int) -> tuple[str,
     if upper in {"NO", "N"}:
         return normalized or "No", "NO"
     return normalized or f"Outcome {outcome_index}", "UNKNOWN"
+
+
+def outcome_token_id(outcome: dict[str, Any]) -> str | None:
+    for key in ("token_id", "tokenId", "tokenID", "externalTokenId", "clobTokenId", "clob_token_id"):
+        value = outcome.get(key)
+        if value:
+            return str(value)
+    token = outcome.get("token")
+    if isinstance(token, dict):
+        return outcome_token_id(token)
+    return None
+
+
+def resolution_source(row: dict[str, Any], market: dict[str, Any]) -> str | None:
+    for key in ("resolutionSource", "resolution_source", "rules", "resolutionRules"):
+        value = market.get(key) or row.get(key)
+        if value:
+            return str(value)
+    return None
 
 
 def normalize_event(row: dict[str, Any]) -> NormalizedEvent:
@@ -132,9 +152,22 @@ def normalize_market(row: dict[str, Any]) -> NormalizedMarket:
         image_thumb_url=market.get("imageThumbUrl"),
         closes_at=parse_ts(market.get("closesAt")),
         resolves_at=parse_ts(market.get("resolvesAt")),
+        resolution_source=resolution_source(row, market),
         outcomes=[
-            {"outcome_index": 0, "label": outcome0_label, "side": outcome0_side, "raw_json": row.get("outcome0") or {}},
-            {"outcome_index": 1, "label": outcome1_label, "side": outcome1_side, "raw_json": row.get("outcome1") or {}},
+            {
+                "outcome_index": 0,
+                "label": outcome0_label,
+                "side": outcome0_side,
+                "external_token_id": outcome_token_id(row.get("outcome0") or {}),
+                "raw_json": row.get("outcome0") or {},
+            },
+            {
+                "outcome_index": 1,
+                "label": outcome1_label,
+                "side": outcome1_side,
+                "external_token_id": outcome_token_id(row.get("outcome1") or {}),
+                "raw_json": row.get("outcome1") or {},
+            },
         ],
         snapshot=snapshot,
         raw_json=row,

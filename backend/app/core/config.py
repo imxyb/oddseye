@@ -2,10 +2,11 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from decimal import Decimal
 from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -80,6 +81,127 @@ class IngestionTiersSection(BaseModel):
     manual_refresh_enabled: bool = True
 
 
+class CryptoThresholdV1Section(BaseModel):
+    enabled: bool = False
+
+    @model_validator(mode="after")
+    def force_disabled(self) -> "CryptoThresholdV1Section":
+        self.enabled = False
+        return self
+
+
+class CryptoThresholdV2ParserSection(BaseModel):
+    min_confidence: float = 0.85
+    touch_min_confidence: float = 0.90
+    block_on_ambiguity: bool = True
+
+
+class CryptoThresholdV2MarketFiltersSection(BaseModel):
+    min_quality_score: float = 70
+    touch_min_quality_score: float = 75
+    min_hours_to_close: float = 2
+    max_days_to_close: float = 21
+    block_extreme_prices: bool = True
+    min_trade_price: float = 0.03
+    max_trade_price: float = 0.97
+
+
+class CryptoThresholdV2DataFreshnessSection(BaseModel):
+    spot_seconds: int = 30
+    orderbook_seconds: int = 15
+    market_snapshot_seconds: int = 300
+    asset_snapshot_cache_seconds: int = 20
+
+
+class CryptoThresholdV2ProbabilitySection(BaseModel):
+    model_family: str = "barrier_distance_v2"
+    calibration_profile: str = "crypto_threshold_v2_default"
+    uncertainty_penalty_multiplier: float = 1.0
+
+
+class CryptoThresholdV2EdgeSection(BaseModel):
+    min_exec_edge: float = 0.06
+    min_stress_edge: float = 0.025
+    touch_min_exec_edge: float = 0.08
+    touch_min_stress_edge: float = 0.04
+    max_spread_ct: float = 0.04
+    uncertainty_penalty_multiplier: float = 1.0
+
+
+class CryptoThresholdV2SizingSection(BaseModel):
+    starting_equity: Decimal = Decimal("10000")
+    min_notional: Decimal = Decimal("5")
+    default_paper_notional_cap: Decimal = Decimal("100")
+    kelly_fraction: float = 0.20
+    max_position_pct: float = 0.01
+    max_event_exposure_pct: float = 0.02
+    max_asset_exposure_pct: float = 0.04
+    max_asset_horizon_exposure_pct: float = 0.025
+    max_category_exposure_pct: float = 0.15
+    max_daily_new_risk_pct: float = 0.02
+    depth_multiplier: float = 1.5
+
+
+class CryptoThresholdV2ExitsSection(BaseModel):
+    stale_data_exit_enabled: bool = True
+    parser_block_exit_enabled: bool = True
+    asset_data_unavailable_exit_enabled: bool = True
+
+
+class CryptoThresholdV2PaperExecutionSection(BaseModel):
+    use_bid_ask: bool = True
+    auto_execute_signals: bool = True
+    price_slippage_ct: Decimal = Decimal("0.0025")
+    require_top_of_book_depth: bool = True
+
+
+class CryptoThresholdV2RealExecutionSection(BaseModel):
+    enabled: bool = False
+    require_manual_approval: bool = True
+    max_order_notional: Decimal = Decimal("10")
+    order_ttl_seconds: int = 30
+    time_in_force: Literal["FAK", "FOK", "GTC"] = "FAK"
+
+
+class CryptoThresholdV2Section(BaseModel):
+    enabled: bool = True
+    legacy_v1_enabled: bool = False
+    mode: Literal["paper_only", "observe_only", "auto_simulated"] = "paper_only"
+    supported_assets: list[str] = Field(default_factory=lambda: ["BTC", "ETH", "SOL"])
+    market_types: list[str] = Field(
+        default_factory=lambda: ["close_above", "close_below", "hit_above", "hit_below", "range_close"]
+    )
+    venue_allowlist: list[str] = Field(default_factory=lambda: ["POLYMARKET"])
+    parser: CryptoThresholdV2ParserSection = Field(default_factory=CryptoThresholdV2ParserSection)
+    market_filters: CryptoThresholdV2MarketFiltersSection = Field(
+        default_factory=CryptoThresholdV2MarketFiltersSection
+    )
+    data_freshness: CryptoThresholdV2DataFreshnessSection = Field(
+        default_factory=CryptoThresholdV2DataFreshnessSection
+    )
+    probability: CryptoThresholdV2ProbabilitySection = Field(default_factory=CryptoThresholdV2ProbabilitySection)
+    edge: CryptoThresholdV2EdgeSection = Field(default_factory=CryptoThresholdV2EdgeSection)
+    sizing: CryptoThresholdV2SizingSection = Field(default_factory=CryptoThresholdV2SizingSection)
+    exits: CryptoThresholdV2ExitsSection = Field(default_factory=CryptoThresholdV2ExitsSection)
+    paper_execution: CryptoThresholdV2PaperExecutionSection = Field(
+        default_factory=CryptoThresholdV2PaperExecutionSection
+    )
+    real_execution: CryptoThresholdV2RealExecutionSection = Field(
+        default_factory=CryptoThresholdV2RealExecutionSection
+    )
+
+
+class MacroCalendarV1Section(BaseModel):
+    enabled: bool = True
+    mode: Literal["observe_and_manual_paper_only"] = "observe_and_manual_paper_only"
+
+
+class StrategiesSection(BaseModel):
+    crypto_threshold_v1: CryptoThresholdV1Section = Field(default_factory=CryptoThresholdV1Section)
+    crypto_threshold_v2: CryptoThresholdV2Section = Field(default_factory=CryptoThresholdV2Section)
+    macro_calendar_v1: MacroCalendarV1Section = Field(default_factory=MacroCalendarV1Section)
+
+
 class RuntimeConfig(BaseModel):
     app: AppSection = Field(default_factory=AppSection)
     auth: AuthSection = Field(default_factory=AuthSection)
@@ -88,6 +210,7 @@ class RuntimeConfig(BaseModel):
     paper: PaperSection = Field(default_factory=PaperSection)
     jobs: JobsSection = Field(default_factory=JobsSection)
     ingestion_tiers: IngestionTiersSection = Field(default_factory=IngestionTiersSection)
+    strategies: StrategiesSection = Field(default_factory=StrategiesSection)
 
 
 class EnvSettings(BaseSettings):

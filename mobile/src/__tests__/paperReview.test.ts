@@ -8,7 +8,7 @@ import {
 const review = {
   strategy_stats: [
     {
-      key: "crypto_threshold_v1",
+      key: "crypto_threshold_v2",
       total_trades: 4,
       total_notional: 220,
       average_edge: 0.1,
@@ -37,7 +37,7 @@ const review = {
       market_id: "market-1",
       question: "Will BTC be above $80,000?",
       category: "crypto",
-      strategy_code: "crypto_threshold_v1",
+      strategy_code: "crypto_threshold_v2",
       side: "BUY",
       outcome_index: 0,
       price: 0.55,
@@ -77,7 +77,7 @@ describe("paper review presentation", () => {
       price: "55c",
       signal: "signal-1",
       snapshot: "42",
-      strategy: "crypto_threshold_v1",
+      strategy: "crypto_threshold_v2",
     });
   });
 });

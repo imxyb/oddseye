@@ -11,6 +11,8 @@ import {
 describe("presentation labels", () => {
   it("localizes high-frequency trading labels", () => {
     expect(actionLabel("BUY")).toBe("买入");
+    expect(actionLabel("BLOCKED")).toBe("阻断");
+    expect(actionLabel("REDUCE")).toBe("减仓");
     expect(actionLabel("OBSERVE")).toBe("观察");
     expect(actionLabel(null)).toBe("无信号");
     expect(sideLabel("YES")).toBe("YES 结果");

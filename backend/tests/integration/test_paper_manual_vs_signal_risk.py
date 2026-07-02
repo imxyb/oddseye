@@ -77,7 +77,7 @@ async def test_manual_orders_are_allowed_on_low_quality_market_but_signal_orders
         signal = ModelSignal(
             market_id=market.id,
             ts=datetime.now(UTC),
-            strategy_code="crypto_threshold_v1",
+            strategy_code="crypto_threshold_v2",
             action="BUY",
             side="YES",
             executable_price=Decimal("0.50"),
@@ -166,7 +166,7 @@ async def test_buy_signal_can_create_filled_paper_order_at_conservative_ask(tmp_
         signal = ModelSignal(
             market_id=market.id,
             ts=datetime.now(UTC),
-            strategy_code="crypto_threshold_v1",
+            strategy_code="crypto_threshold_v2",
             action="BUY",
             side="YES",
             executable_price=Decimal("0.50"),
@@ -245,7 +245,7 @@ async def test_signal_order_rejects_legacy_zero_price_buy_signal(tmp_path) -> No
         signal = ModelSignal(
             market_id=market.id,
             ts=datetime.now(UTC),
-            strategy_code="crypto_threshold_v1",
+            strategy_code="crypto_threshold_v2",
             action="BUY",
             side="YES",
             executable_price=Decimal("0"),
@@ -376,7 +376,7 @@ async def test_expired_signal_cannot_create_paper_order(tmp_path) -> None:
                 ModelSignal(
                     market_id=market.id,
                     ts=datetime.now(UTC) - timedelta(minutes=10),
-                    strategy_code="crypto_threshold_v1",
+                    strategy_code="crypto_threshold_v2",
                     action="BUY",
                     side="NO",
                     executable_price=Decimal("0.42"),

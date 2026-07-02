@@ -46,6 +46,15 @@ describe("signal visibility defaults", () => {
     expect(signalFilterParams("IGNORE")).toEqual({ action: "IGNORE" });
   });
 
+  it("exposes V2 blocked and reduce signals as explicit filters", async () => {
+    const { signalFilterParams, signalFilters } = await import("../utils/signalVisibility");
+
+    expect(signalFilters.map((filter) => filter.key)).toContain("BLOCKED");
+    expect(signalFilters.map((filter) => filter.key)).toContain("REDUCE");
+    expect(signalFilterParams("BLOCKED")).toEqual({ action: "BLOCKED" });
+    expect(signalFilterParams("REDUCE")).toEqual({ action: "REDUCE" });
+  });
+
   it("only treats executable BUY signals as orderable", async () => {
     const { isOrderableSignal } = await import("../utils/signalVisibility");
 

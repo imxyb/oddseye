@@ -4,8 +4,10 @@ const actionLabels: Record<string, string> = {
   BUY: "买入",
   SELL: "卖出",
   EXIT: "退出",
+  REDUCE: "减仓",
   HOLD: "持有",
   OBSERVE: "观察",
+  BLOCKED: "阻断",
   IGNORE: "忽略",
 };
 

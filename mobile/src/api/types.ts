@@ -1,7 +1,15 @@
 export type Protocol = "POLYMARKET" | "KALSHI";
 export type MarketCategory = "crypto" | "economics" | "finance" | "watchlist";
 export type MarketStatus = "OPEN" | "CLOSED" | "RESOLVED" | string;
-export type SignalAction = "BUY" | "SELL" | "EXIT" | "HOLD" | "OBSERVE" | "IGNORE";
+export type SignalAction =
+  | "BUY"
+  | "SELL"
+  | "EXIT"
+  | "REDUCE"
+  | "HOLD"
+  | "OBSERVE"
+  | "BLOCKED"
+  | "IGNORE";
 export type SignalSide = "YES" | "NO";
 export type OrderSide = "BUY" | "SELL" | "EXIT";
 

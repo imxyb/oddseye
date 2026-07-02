@@ -5,10 +5,11 @@ from datetime import timedelta
 from decimal import Decimal
 from typing import Any
 
+from app.core.config import CryptoThresholdV2Section
 from app.core.time import utcnow
 from app.db.models import MarketSnapshot, PredictionEvent, PredictionMarket
 from app.strategies.base import StrategySignal
-from app.strategies.crypto_v2.execution_gate import evaluate_execution_gate
+from app.strategies.crypto_v2.execution_gate import ExecutionGateConfig, evaluate_execution_gate
 from app.strategies.crypto_v2.lifecycle import PositionState, decide_lifecycle_action
 from app.strategies.crypto_v2.probability import estimate_probability
 from app.strategies.crypto_v2.sizing import SizingConfig, suggested_notional
@@ -35,8 +36,15 @@ class V2StrategyResult:
 class CryptoThresholdV2Strategy:
     strategy_code = STRATEGY_CODE
 
-    def __init__(self, parser: CryptoMarketSpecParserV2 | None = None):
+    def __init__(
+        self,
+        parser: CryptoMarketSpecParserV2 | None = None,
+        config: CryptoThresholdV2Section | None = None,
+    ):
         self.parser = parser or CryptoMarketSpecParserV2()
+        self.config = config or CryptoThresholdV2Section()
+        self.execution_gate_config = _execution_gate_config(self.config)
+        self.sizing_config = _sizing_config(self.config)
 
     def blocked_from_parse(
         self,
@@ -92,6 +100,8 @@ class CryptoThresholdV2Strategy:
         no_orderbook: PredictionOrderBookSnapshot,
         current_position: PositionState | None,
         equity: Decimal,
+        liquidity_multiplier: float = 1.0,
+        existing_exposure_multiplier: float = 1.0,
     ) -> V2StrategyResult:
         now = utcnow()
         market_quality = snapshot.market_quality_score or Decimal("0")
@@ -110,6 +120,7 @@ class CryptoThresholdV2Strategy:
             side="YES",
             market_quality_score=market_quality,
             now=now,
+            config=self.execution_gate_config,
         )
         no_gate = evaluate_execution_gate(
             spec=spec,
@@ -119,6 +130,7 @@ class CryptoThresholdV2Strategy:
             side="NO",
             market_quality_score=market_quality,
             now=now,
+            config=self.execution_gate_config,
         )
         candidate = _best_gate(yes_gate, no_gate)
         if candidate is None:
@@ -158,10 +170,10 @@ class CryptoThresholdV2Strategy:
             edge_stress=candidate.edge_stress,
             market_quality_score=float(market_quality),
             parser_confidence=spec.parser_confidence,
-            liquidity_multiplier=1.0,
-            existing_exposure_multiplier=1.0,
+            liquidity_multiplier=liquidity_multiplier,
+            existing_exposure_multiplier=existing_exposure_multiplier,
             market_type=spec.market_type,
-            config=SizingConfig(),
+            config=self.sizing_config,
         )
         selected_book = yes_orderbook if candidate.side == "YES" else no_orderbook
         final_gate = evaluate_execution_gate(
@@ -173,6 +185,7 @@ class CryptoThresholdV2Strategy:
             market_quality_score=market_quality,
             intended_notional=notional,
             now=now,
+            config=self.execution_gate_config,
         )
         if not final_gate.allowed or notional <= 0:
             if current_position is not None:
@@ -204,6 +217,8 @@ class CryptoThresholdV2Strategy:
                 risk_flags=risk_flags,
                 reason_codes=final_gate.reason_codes,
                 selected_gate=final_gate,
+                liquidity_multiplier=liquidity_multiplier,
+                existing_exposure_multiplier=existing_exposure_multiplier,
             )
 
         exit_bid = selected_book.best_bid
@@ -262,6 +277,8 @@ class CryptoThresholdV2Strategy:
                 side=lifecycle.side,
                 suggested_notional=suggested,
                 equity=equity,
+                liquidity_multiplier=liquidity_multiplier,
+                existing_exposure_multiplier=existing_exposure_multiplier,
                 risk_flags=lifecycle.risk_flags,
                 blocked_reason=None,
             ),
@@ -384,6 +401,8 @@ class CryptoThresholdV2Strategy:
         risk_flags: list[str],
         reason_codes: list[str],
         selected_gate: ExecutionDecision | None = None,
+        liquidity_multiplier: float = 1.0,
+        existing_exposure_multiplier: float = 1.0,
     ) -> V2StrategyResult:
         now = utcnow()
         gate = selected_gate or yes_gate
@@ -416,6 +435,8 @@ class CryptoThresholdV2Strategy:
                 action=action,
                 side=None,
                 suggested_notional=None,
+                liquidity_multiplier=liquidity_multiplier,
+                existing_exposure_multiplier=existing_exposure_multiplier,
                 risk_flags=risk_flags,
                 blocked_reason="EXECUTION_GATE_BLOCKED" if action == "BLOCKED" else None,
             ),
@@ -435,6 +456,8 @@ class CryptoThresholdV2Strategy:
         side: str | None,
         suggested_notional: Decimal | None,
         equity: Decimal | None = None,
+        liquidity_multiplier: float = 1.0,
+        existing_exposure_multiplier: float = 1.0,
         risk_flags: list[str],
         blocked_reason: str | None,
     ) -> dict[str, Any]:
@@ -491,7 +514,11 @@ class CryptoThresholdV2Strategy:
             },
             "sizing": {
                 "equity": str(equity) if equity is not None else None,
-                "kelly_fraction": 0.20,
+                "kelly_fraction": self.sizing_config.kelly_fraction,
+                "min_notional": str(self.sizing_config.min_notional),
+                "paper_notional_cap": str(self.sizing_config.default_paper_notional_cap),
+                "liquidity_multiplier": liquidity_multiplier,
+                "existing_exposure_multiplier": existing_exposure_multiplier,
                 "final_notional": str(suggested_notional) if suggested_notional is not None else None,
             },
             "decision": {
@@ -510,6 +537,37 @@ def _best_gate(yes_gate: ExecutionDecision, no_gate: ExecutionDecision) -> Execu
     if not candidates:
         return None
     return max(candidates, key=lambda gate: gate.edge_exec)
+
+
+def _execution_gate_config(config: CryptoThresholdV2Section) -> ExecutionGateConfig:
+    return ExecutionGateConfig(
+        max_spread_ct=config.edge.max_spread_ct,
+        orderbook_seconds=config.data_freshness.orderbook_seconds,
+        spot_seconds=config.data_freshness.spot_seconds,
+        depth_multiplier=config.sizing.depth_multiplier,
+        min_parser_confidence=config.parser.min_confidence,
+        touch_min_parser_confidence=config.parser.touch_min_confidence,
+        min_quality_score=config.market_filters.min_quality_score,
+        touch_min_quality_score=config.market_filters.touch_min_quality_score,
+        min_hours_to_close=config.market_filters.min_hours_to_close,
+        max_days_to_close=config.market_filters.max_days_to_close,
+        min_trade_price=config.market_filters.min_trade_price,
+        max_trade_price=config.market_filters.max_trade_price,
+        min_exec_edge=config.edge.min_exec_edge,
+        min_stress_edge=config.edge.min_stress_edge,
+        touch_min_exec_edge=config.edge.touch_min_exec_edge,
+        touch_min_stress_edge=config.edge.touch_min_stress_edge,
+        uncertainty_penalty_multiplier=config.edge.uncertainty_penalty_multiplier,
+    )
+
+
+def _sizing_config(config: CryptoThresholdV2Section) -> SizingConfig:
+    return SizingConfig(
+        min_notional=config.sizing.min_notional,
+        default_paper_notional_cap=config.sizing.default_paper_notional_cap,
+        kelly_fraction=config.sizing.kelly_fraction,
+        max_position_pct=config.sizing.max_position_pct,
+    )
 
 
 def _suggested_notional_for_action(

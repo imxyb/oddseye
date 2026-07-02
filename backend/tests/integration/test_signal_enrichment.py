@@ -55,6 +55,15 @@ class FakeHighEdgeAssetMarketDataProvider:
         }
 
 
+@dataclass
+class FakeMissingAssetMarketDataProvider:
+    calls: list[str]
+
+    async def asset_market_data(self, asset: str):
+        self.calls.append(asset)
+        return None
+
+
 @pytest.mark.asyncio
 async def test_compute_crypto_signals_v2_auto_fills_buy_order(tmp_path) -> None:
     sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-auto-buy.db'}")
@@ -108,6 +117,59 @@ async def test_compute_crypto_signals_v2_auto_fills_buy_order(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_compute_crypto_signals_v2_uses_runtime_strategy_edge_config(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    config_path = tmp_path / "app.yaml"
+    config_path.write_text(
+        """
+strategies:
+  crypto_threshold_v2:
+    enabled: true
+    edge:
+      max_spread_ct: 0.01
+    paper_execution:
+      auto_execute_signals: true
+""",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("APP_CONFIG_PATH", str(config_path))
+
+    from app.core.config import get_settings
+
+    get_settings.cache_clear()
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-config-gate.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with sessionmaker() as session:
+            await _crypto_market_with_snapshot(
+                session,
+                question="Will ETH be above $3,000 on July 10, 2026?",
+                yes_bid=Decimal("0.48"),
+                yes_ask=Decimal("0.50"),
+            )
+            await session.commit()
+
+            provider = FakeHighEdgeAssetMarketDataProvider(calls=[])
+            count = await compute_crypto_signals(session, asset_market_data_provider=provider)
+            await session.commit()
+
+            signal = await session.scalar(select(ModelSignal))
+            order_count = len((await session.execute(select(PaperOrder))).scalars().all())
+
+        assert count == 1
+        assert signal is not None
+        assert signal.action == "OBSERVE"
+        assert "SPREAD_TOO_WIDE" in signal.risk_flags
+        assert order_count == 0
+    finally:
+        get_settings.cache_clear()
+        await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
 async def test_compute_crypto_signals_v2_skips_kalshi_crypto_market(tmp_path) -> None:
     sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-skip-kalshi.db'}")
     async with sessionmaker.bind.begin() as conn:
@@ -132,10 +194,11 @@ async def test_compute_crypto_signals_v2_skips_kalshi_crypto_market(tmp_path) ->
                 venue_id=venue.id,
                 external_market_id="kalshi-crypto-market",
                 protocol="KALSHI",
-                question=event.question,
-                status="OPEN",
-                closes_at=datetime(2026, 7, 31, tzinfo=UTC),
-            )
+                    question=event.question,
+                    status="OPEN",
+                    closes_at=datetime(2026, 7, 31, tzinfo=UTC),
+                    resolution_source="Polymarket rules",
+                )
             session.add(market)
             await session.flush()
             session.add(
@@ -195,6 +258,109 @@ async def test_compute_crypto_signals_v2_blocked_signal_does_not_create_order(tm
         assert "NO_THRESHOLD" in signal.risk_flags
         assert signal.raw_json["decision"]["blocked_reason"] == "PARSER_FAILED"
         assert order_count == 0
+    finally:
+        await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_compute_crypto_signals_v2_exits_existing_position_when_parser_blocks(
+    tmp_path,
+) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-parser-exit.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with sessionmaker() as session:
+            _venue, market = await _crypto_market_with_snapshot(
+                session,
+                question="Will ETH trend higher by July 31, 2026?",
+                yes_bid=Decimal("0.44"),
+                yes_ask=Decimal("0.46"),
+            )
+            account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("9950"))
+            session.add(account)
+            await session.flush()
+            session.add(
+                PaperPosition(
+                    account_id=account.id,
+                    market_id=market.id,
+                    outcome_index=0,
+                    quantity=Decimal("100"),
+                    avg_price=Decimal("0.50"),
+                    mark_price=Decimal("0.44"),
+                    realized_pnl=Decimal("0"),
+                    unrealized_pnl=Decimal("-6"),
+                    status="open",
+                )
+            )
+            await session.commit()
+
+            provider = FakeHighEdgeAssetMarketDataProvider(calls=[])
+            count = await compute_crypto_signals(session, asset_market_data_provider=provider)
+            await session.commit()
+
+            signal = await session.scalar(select(ModelSignal))
+            order = await session.scalar(select(PaperOrder))
+
+        assert count == 1
+        assert provider.calls == []
+        assert signal is not None
+        assert signal.action == "EXIT"
+        assert signal.side == "YES"
+        assert "PARSER_FAILED" in signal.reason_codes
+        assert "NO_THRESHOLD" in signal.risk_flags
+        assert order is not None
+        assert order.side == "SELL"
+        assert order.status == "filled"
+    finally:
+        await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_compute_crypto_signals_v2_exits_existing_position_when_asset_data_unavailable(
+    tmp_path,
+) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-asset-missing-exit.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    try:
+        async with sessionmaker() as session:
+            _venue, market = await _crypto_market_with_snapshot(session)
+            account = PaperAccount(name="Default", starting_cash=Decimal("10000"), cash=Decimal("9950"))
+            session.add(account)
+            await session.flush()
+            session.add(
+                PaperPosition(
+                    account_id=account.id,
+                    market_id=market.id,
+                    outcome_index=0,
+                    quantity=Decimal("100"),
+                    avg_price=Decimal("0.50"),
+                    mark_price=Decimal("0.48"),
+                    realized_pnl=Decimal("0"),
+                    unrealized_pnl=Decimal("-2"),
+                    status="open",
+                )
+            )
+            await session.commit()
+
+            provider = FakeMissingAssetMarketDataProvider(calls=[])
+            count = await compute_crypto_signals(session, asset_market_data_provider=provider)
+            await session.commit()
+
+            signal = await session.scalar(select(ModelSignal))
+            order = await session.scalar(select(PaperOrder))
+
+        assert count == 1
+        assert provider.calls == ["ETH"]
+        assert signal is not None
+        assert signal.action == "EXIT"
+        assert signal.side == "YES"
+        assert "ASSET_MARKET_DATA_UNAVAILABLE" in signal.reason_codes
+        assert "ASSET_MARKET_DATA_UNAVAILABLE" in signal.risk_flags
+        assert order is not None
+        assert order.side == "SELL"
+        assert order.status == "filled"
     finally:
         await sessionmaker.bind.dispose()
 
@@ -422,6 +588,7 @@ async def test_compute_crypto_signals_uses_asset_enrichment_for_codex_markets(tm
                 question=event.question,
                 status="OPEN",
                 closes_at=datetime(2026, 7, 10, tzinfo=UTC),
+                resolution_source="Polymarket rules",
                 raw_json={
                     "id": "market",
                     "market": {"id": "market"},
@@ -495,6 +662,7 @@ async def test_compute_crypto_signals_ignores_unparsed_crypto_markets(tmp_path) 
                 question=event.question,
                 status="OPEN",
                 closes_at=datetime(2026, 7, 31, tzinfo=UTC),
+                resolution_source="Polymarket rules",
                 raw_json={"id": "market", "market": {"id": "market"}},
             )
             session.add(market)
@@ -559,6 +727,7 @@ async def test_compute_crypto_signals_observes_touch_markets_without_edge(tmp_pa
                 question=event.question,
                 status="OPEN",
                 closes_at=datetime(2026, 7, 10, tzinfo=UTC),
+                resolution_source="Polymarket rules",
                 raw_json={"id": "market", "market": {"id": "market"}},
             )
             session.add(market)
@@ -795,6 +964,7 @@ async def _crypto_market_with_snapshot(
         question=event.question,
         status="OPEN",
         closes_at=datetime(2026, 7, 10, tzinfo=UTC),
+        resolution_source="Polymarket rules",
         raw_json={
             "id": "market",
             "market": {"id": "market"},

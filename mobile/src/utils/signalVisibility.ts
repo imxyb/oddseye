@@ -5,7 +5,7 @@ export const defaultSignalFilterKey = "EDGE";
 
 export type SignalFilterKey = typeof defaultSignalFilterKey | Extract<
   SignalAction,
-  "BUY" | "HOLD" | "OBSERVE" | "EXIT" | "IGNORE"
+  "BUY" | "HOLD" | "OBSERVE" | "EXIT" | "REDUCE" | "BLOCKED" | "IGNORE"
 >;
 
 export const signalFilters: Array<{ key: SignalFilterKey; label: string }> = [
@@ -14,6 +14,8 @@ export const signalFilters: Array<{ key: SignalFilterKey; label: string }> = [
   { key: "HOLD", label: "持有" },
   { key: "OBSERVE", label: "观察" },
   { key: "EXIT", label: "退出" },
+  { key: "REDUCE", label: "减仓" },
+  { key: "BLOCKED", label: "阻断" },
   { key: "IGNORE", label: "忽略" },
 ];
 

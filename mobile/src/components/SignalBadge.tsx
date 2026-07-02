@@ -27,10 +27,17 @@ function paletteFor(action?: string | null): {
       };
     case "SELL":
     case "EXIT":
+    case "REDUCE":
       return {
         backgroundColor: colors.dangerSoft,
         color: colors.danger,
         icon: "arrow-down-circle",
+      };
+    case "BLOCKED":
+      return {
+        backgroundColor: colors.warningSoft,
+        color: colors.warning,
+        icon: "alert-circle",
       };
     case "HOLD":
     case "OBSERVE":

@@ -210,12 +210,19 @@ async def sync_event_markets(
                 image_thumb_url=normalized.image_thumb_url,
                 closes_at=normalized.closes_at,
                 resolves_at=normalized.resolves_at,
+                resolution_source=normalized.resolution_source,
                 raw_json=normalized.raw_json,
             )
             session.add(market)
             await session.flush()
         else:
             market.status = normalized.status
+            market.label = normalized.label
+            market.question = normalized.question
+            market.image_thumb_url = normalized.image_thumb_url
+            market.closes_at = normalized.closes_at
+            market.resolves_at = normalized.resolves_at
+            market.resolution_source = normalized.resolution_source
             market.raw_json = normalized.raw_json
             market.updated_at = utcnow()
         for outcome in normalized.outcomes:
@@ -310,6 +317,7 @@ async def _upsert_outcome(session: AsyncSession, market_id: str, outcome: dict[s
     else:
         existing.label = outcome["label"]
         existing.side = outcome["side"]
+        existing.external_token_id = outcome.get("external_token_id")
         existing.raw_json = outcome["raw_json"]
 
 

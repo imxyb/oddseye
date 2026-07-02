@@ -8,8 +8,9 @@ from app.strategies.crypto_v2.spec_parser import CryptoMarketSpecParserV2
 
 
 def test_parse_btc_close_above() -> None:
+    closes_at = datetime(2026, 7, 31, 23, 59, 59, tzinfo=UTC)
     result = CryptoMarketSpecParserV2().parse(
-        _market("m1", "Will Bitcoin be above $110,000 on July 31, 2026?"),
+        _market("m1", "Will Bitcoin be above $110,000 on July 31, 2026?", closes_at=closes_at),
         _event("e1"),
     )
 
@@ -19,14 +20,18 @@ def test_parse_btc_close_above() -> None:
     assert result.spec.protocol == "POLYMARKET"
     assert result.spec.market_type == "close_above"
     assert result.spec.threshold == Decimal("110000")
-    assert result.spec.window_end == datetime(2026, 7, 31, 23, 59, 59, tzinfo=UTC)
+    assert result.spec.window_end == closes_at
     assert result.spec.parser_confidence >= 0.85
     assert result.spec.ambiguity_flags == []
 
 
 def test_parse_eth_close_below() -> None:
     result = CryptoMarketSpecParserV2().parse(
-        _market("m2", "Will ETH close below 3.5k by July 31, 2026?"),
+        _market(
+            "m2",
+            "Will ETH close below 3.5k by July 31, 2026?",
+            closes_at=datetime(2026, 7, 31, 23, 59, 59, tzinfo=UTC),
+        ),
         _event("e2"),
     )
 
@@ -39,7 +44,11 @@ def test_parse_eth_close_below() -> None:
 
 def test_parse_sol_hit_above() -> None:
     result = CryptoMarketSpecParserV2().parse(
-        _market("m3", "Will Solana reach $220 before July 31, 2026?"),
+        _market(
+            "m3",
+            "Will Solana reach $220 before July 31, 2026?",
+            closes_at=datetime(2026, 7, 31, 23, 59, 59, tzinfo=UTC),
+        ),
         _event("e3"),
     )
 
@@ -53,7 +62,11 @@ def test_parse_sol_hit_above() -> None:
 
 def test_parse_btc_hit_below() -> None:
     result = CryptoMarketSpecParserV2().parse(
-        _market("m4", "Will BTC fall below $95k before July 31, 2026?"),
+        _market(
+            "m4",
+            "Will BTC fall below $95k before July 31, 2026?",
+            closes_at=datetime(2026, 7, 31, 23, 59, 59, tzinfo=UTC),
+        ),
         _event("e4"),
     )
 
@@ -66,7 +79,11 @@ def test_parse_btc_hit_below() -> None:
 
 def test_parse_range_close() -> None:
     result = CryptoMarketSpecParserV2().parse(
-        _market("m5", "Will BTC be between $100k and $110k on July 31, 2026?"),
+        _market(
+            "m5",
+            "Will BTC be between $100k and $110k on July 31, 2026?",
+            closes_at=datetime(2026, 7, 31, 23, 59, 59, tzinfo=UTC),
+        ),
         _event("e5"),
     )
 
@@ -129,14 +146,44 @@ def test_reject_ath_market_initially() -> None:
     assert "ATH_REQUIRES_HISTORY" in result.ambiguity_flags
 
 
-def _market(market_id: str, question: str, closes_at: datetime | None = None):
+def test_reject_unclear_resolution_source() -> None:
+    result = CryptoMarketSpecParserV2().parse(
+        _market(
+            "m11",
+            "Will BTC be above $110,000 on July 31, 2026?",
+            closes_at=datetime(2026, 7, 31, 23, 59, 59, tzinfo=UTC),
+            resolution_source=None,
+        ),
+        _event("e11"),
+    )
+
+    assert result.failed
+    assert "UNCLEAR_RESOLUTION_SOURCE" in result.ambiguity_flags
+
+
+def test_reject_question_deadline_without_market_timestamp_as_unclear_timezone() -> None:
+    result = CryptoMarketSpecParserV2().parse(
+        _market("m12", "Will BTC be above $110,000 on July 31, 2026?", closes_at=None),
+        _event("e12", closes_at=None),
+    )
+
+    assert result.failed
+    assert "UNCLEAR_TIMEZONE" in result.ambiguity_flags
+
+
+def _market(
+    market_id: str,
+    question: str,
+    closes_at: datetime | None = None,
+    resolution_source: str | None = "Polymarket rules",
+):
     return SimpleNamespace(
         id=market_id,
         event_id="event-id",
         protocol="POLYMARKET",
         question=question,
         closes_at=closes_at,
-        resolution_source="Polymarket rules",
+        resolution_source=resolution_source,
         raw_json={"id": market_id},
     )
 

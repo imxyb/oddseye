@@ -110,7 +110,7 @@ async def test_radar_uses_latest_unexpired_signal(tmp_path) -> None:
                 ModelSignal(
                     market_id=market.id,
                     ts=datetime.now(UTC),
-                    strategy_code="crypto_threshold_v1",
+                    strategy_code="crypto_threshold_v2",
                     action="BUY",
                     side="YES",
                     edge=Decimal("0.20"),
@@ -121,7 +121,7 @@ async def test_radar_uses_latest_unexpired_signal(tmp_path) -> None:
                 ModelSignal(
                     market_id=market.id,
                     ts=datetime.now(UTC) - timedelta(minutes=2),
-                    strategy_code="crypto_threshold_v1",
+                    strategy_code="crypto_threshold_v2",
                     action="BUY",
                     side="NO",
                     edge=Decimal("0.10"),
@@ -352,7 +352,7 @@ async def _market_with_snapshot(
         ModelSignal(
             market_id=market.id,
             ts=datetime.now(UTC),
-            strategy_code="crypto_threshold_v1",
+            strategy_code="crypto_threshold_v2",
             action="BUY",
             side="YES",
             edge=edge,

@@ -57,7 +57,7 @@ async def test_event_ids_for_sync_prioritizes_positions_and_buy_signals(tmp_path
             ModelSignal(
                 market_id=signal_market.id,
                 ts=datetime.now(UTC),
-                strategy_code="crypto_threshold_v1",
+                strategy_code="crypto_threshold_v2",
                 action="BUY",
                 side="YES",
                 executable_price=Decimal("0.50"),
