@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
@@ -65,6 +66,22 @@ class FakeMissingAssetMarketDataProvider:
         return None
 
 
+class FakeSemanticParser:
+    def __init__(self):
+        self.questions: list[str] = []
+
+    def parse(self, *, question: str, event_question: str | None, resolution_source: str | None) -> dict:
+        self.questions.append(question)
+        return {
+            "asset": "BTC",
+            "market_type": "hit_above",
+            "threshold": "66000",
+            "settlement": "touch_intraperiod",
+            "confidence": 0.96,
+            "unsupported_flags": [],
+        }
+
+
 class FakeClobPredictionOrderBookService:
     async def get_orderbook(self, market, snapshot, outcome: str) -> PredictionOrderBookSnapshot:
         if outcome == "YES":
@@ -97,6 +114,55 @@ class FakeClobPredictionOrderBookService:
             source="polymarket_clob",
             raw_json={"source": "test"},
         )
+
+
+@pytest.mark.asyncio
+async def test_prewarm_crypto_semantic_caches_writes_cache_once() -> None:
+    from app.services.signals import _prewarm_crypto_semantic_caches
+    from app.strategies.crypto_v2.semantic_parser import SEMANTIC_CACHE_KEY
+
+    parser = FakeSemanticParser()
+    question = "Will Bitcoin reach $66,000 on July 10, 2026?"
+    market = SimpleNamespace(
+        question=question,
+        protocol="POLYMARKET",
+        resolution_source="Polymarket rules",
+        raw_json={},
+    )
+    cached_market = SimpleNamespace(
+        question=question,
+        protocol="POLYMARKET",
+        resolution_source="Polymarket rules",
+        raw_json={
+            SEMANTIC_CACHE_KEY: {
+                "version": "llm_semantic_v1",
+                "question": question,
+                "resolution_source": "Polymarket rules",
+                "provider": "test",
+                "model": "test",
+                "parsed": {
+                    "asset": "BTC",
+                    "market_type": "hit_above",
+                    "threshold": "66000",
+                    "confidence": 0.96,
+                    "unsupported_flags": [],
+                },
+            }
+        },
+    )
+    event = SimpleNamespace(question="Crypto event", protocol="POLYMARKET", categories=["crypto"])
+
+    warmed = await _prewarm_crypto_semantic_caches(
+        [(market, event, None), (cached_market, event, None)],
+        semantic_parser=parser,
+        provider="test",
+        model="test",
+        concurrency=2,
+    )
+
+    assert warmed == 1
+    assert parser.questions == [question]
+    assert market.raw_json[SEMANTIC_CACHE_KEY]["parsed"]["market_type"] == "hit_above"
 
 
 @pytest.mark.asyncio

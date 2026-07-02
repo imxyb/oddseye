@@ -51,7 +51,29 @@ class DeepSeekSemanticParser:
     ) -> dict[str, Any]:
         if not self.api_key:
             raise SemanticParseError("missing_deepseek_api_key")
-        client = self.http_client or httpx.Client(timeout=self.timeout_seconds, trust_env=False)
+        if self.http_client is not None:
+            return self._parse_with_client(
+                self.http_client,
+                question=question,
+                event_question=event_question,
+                resolution_source=resolution_source,
+            )
+        with httpx.Client(timeout=self.timeout_seconds, trust_env=False) as client:
+            return self._parse_with_client(
+                client,
+                question=question,
+                event_question=event_question,
+                resolution_source=resolution_source,
+            )
+
+    def _parse_with_client(
+        self,
+        client: httpx.Client,
+        *,
+        question: str,
+        event_question: str | None,
+        resolution_source: str | None,
+    ) -> dict[str, Any]:
         response = client.post(
             f"{self.base_url.rstrip('/')}/chat/completions",
             headers={

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
@@ -36,6 +37,15 @@ from app.strategies.crypto_v2.exposure import (
 )
 from app.strategies.crypto_v2.lifecycle import PositionState
 from app.strategies.crypto_v2.spec import CryptoMarketSpec
+from app.strategies.crypto_v2.semantic_parser import (
+    SEMANTIC_CACHE_KEY,
+    DeepSeekSemanticParser,
+    SemanticParseError,
+    SemanticParser,
+    cache_payload,
+    normalize_semantic_payload,
+    semantic_from_cache,
+)
 from app.strategies.crypto_v2.spec_parser import CryptoMarketSpecParserV2
 from app.strategies.crypto_v2.strategy import (
     SIGNAL_TTL,
@@ -189,10 +199,12 @@ async def compute_crypto_signals(
         .join(MarketSnapshot, MarketSnapshot.market_id == PredictionMarket.id)
         .order_by(MarketSnapshot.ts.desc())
     )
+    market_rows = rows.all()
+    await _prewarm_crypto_semantic_caches(market_rows)
     seen: set[str] = set()
     auto_candidates: list[AutoExecutionCandidate] = []
     count = 0
-    for market, event, snapshot in rows.all():
+    for market, event, snapshot in market_rows:
         if market.id in seen:
             continue
         seen.add(market.id)
@@ -272,6 +284,86 @@ async def compute_crypto_signals(
     if owns_provider and hasattr(provider, "aclose"):
         await provider.aclose()
     return count
+
+
+async def _prewarm_crypto_semantic_caches(
+    rows: list[Any],
+    *,
+    semantic_parser: SemanticParser | None = None,
+    provider: str | None = None,
+    model: str | None = None,
+    concurrency: int = 8,
+) -> int:
+    settings = get_settings()
+    parser_config = settings.config.strategies.crypto_threshold_v2.parser
+    if semantic_parser is None:
+        if parser_config.semantic_provider != "deepseek" or not settings.deepseek_api_key:
+            return 0
+        semantic_parser = DeepSeekSemanticParser(
+            api_key=settings.deepseek_api_key,
+            base_url=settings.deepseek_base_url,
+            model=settings.deepseek_model,
+            timeout_seconds=settings.deepseek_timeout_seconds,
+        )
+        provider = "deepseek"
+        model = settings.deepseek_model
+    provider = provider or "test"
+    model = model or "test"
+    semaphore = asyncio.Semaphore(max(1, concurrency))
+    deduped_rows: list[Any] = []
+    seen_markets: set[str] = set()
+    for row in rows:
+        market = row[0]
+        market_key = str(getattr(market, "id", None) or getattr(market, "question", ""))
+        if market_key in seen_markets:
+            continue
+        seen_markets.add(market_key)
+        deduped_rows.append(row)
+
+    async def warm(row: Any) -> bool:
+        market, event, snapshot = row
+        if not _needs_semantic_prewarm(market, event, snapshot):
+            return False
+        question = str(getattr(market, "question", "") or "")
+        resolution_source = getattr(market, "resolution_source", None)
+        if semantic_from_cache(getattr(market, "raw_json", None), question=question, resolution_source=resolution_source):
+            return False
+        async with semaphore:
+            try:
+                parsed = await asyncio.to_thread(
+                    semantic_parser.parse,
+                    question=question,
+                    event_question=getattr(event, "question", None),
+                    resolution_source=resolution_source,
+                )
+                parsed = normalize_semantic_payload(parsed)
+            except (SemanticParseError, ValueError, TypeError):
+                return False
+        raw = dict(getattr(market, "raw_json", None) or {})
+        raw[SEMANTIC_CACHE_KEY] = cache_payload(
+            question=question,
+            resolution_source=resolution_source,
+            provider=provider,
+            model=model,
+            parsed=parsed,
+        )
+        market.raw_json = raw
+        return True
+
+    warmed = await asyncio.gather(*(warm(row) for row in deduped_rows))
+    return sum(1 for value in warmed if value)
+
+
+def _needs_semantic_prewarm(market: PredictionMarket, event: PredictionEvent, snapshot: MarketSnapshot | None) -> bool:
+    if "crypto" not in [str(c).lower() for c in getattr(event, "categories", []) or []]:
+        return False
+    if str(getattr(market, "protocol", "")).upper() != "POLYMARKET":
+        return False
+    if str(getattr(event, "protocol", "")).upper() != "POLYMARKET":
+        return False
+    if snapshot is not None and snapshot.market_quality_score is None:
+        return False
+    return True
 
 
 def _model_signal_from_result(result: V2StrategyResult) -> ModelSignal:
