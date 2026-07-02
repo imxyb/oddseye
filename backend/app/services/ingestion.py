@@ -25,6 +25,8 @@ from app.scoring.market_quality import QualityInputs, compute_market_quality
 from app.services.bootstrap import ensure_default_venues
 from app.services.usage import DatabaseUsageRecorder
 
+CODEX_MAX_EVENT_IDS = 200
+
 
 def create_codex_client() -> CodexClient:
     settings = get_settings()
@@ -170,66 +172,71 @@ async def sync_event_markets(
         return 0
     await ensure_default_venues(session)
     client = client or create_codex_client()
-    data = await client.event_markets(
-        event_ids,
-        limit=settings.config.radar.max_markets_per_ingest,
-        job_run_id=job_run_id,
-        kind=kind,
-        metadata={"fetch_profile": settings.config.codex.fetch_profile},
-    )
-    rows = ((data.get("filterPredictionMarkets") or {}).get("results")) or []
     count = 0
-    for row in rows:
-        normalized = normalize_market(row)
-        if normalized.protocol.upper() != "POLYMARKET":
-            continue
-        venue = await _venue_for_protocol(session, normalized.protocol)
-        event = await session.scalar(
-            select(PredictionEvent).where(
-                PredictionEvent.venue_id == venue.id,
-                PredictionEvent.external_event_id == normalized.external_event_id,
-            )
+    for event_id_chunk in _chunks(event_ids, CODEX_MAX_EVENT_IDS):
+        data = await client.event_markets(
+            event_id_chunk,
+            limit=settings.config.radar.max_markets_per_ingest,
+            job_run_id=job_run_id,
+            kind=kind,
+            metadata={"fetch_profile": settings.config.codex.fetch_profile},
         )
-        if event is None:
-            continue
-        market = await session.scalar(
-            select(PredictionMarket).where(
-                PredictionMarket.venue_id == venue.id,
-                PredictionMarket.external_market_id == normalized.external_market_id,
+        rows = ((data.get("filterPredictionMarkets") or {}).get("results")) or []
+        for row in rows:
+            normalized = normalize_market(row)
+            if normalized.protocol.upper() != "POLYMARKET":
+                continue
+            venue = await _venue_for_protocol(session, normalized.protocol)
+            event = await session.scalar(
+                select(PredictionEvent).where(
+                    PredictionEvent.venue_id == venue.id,
+                    PredictionEvent.external_event_id == normalized.external_event_id,
+                )
             )
-        )
-        if market is None:
-            market = PredictionMarket(
-                event_id=event.id,
-                venue_id=venue.id,
-                external_market_id=normalized.external_market_id,
-                protocol=normalized.protocol,
-                label=normalized.label,
-                question=normalized.question,
-                status=normalized.status,
-                image_thumb_url=normalized.image_thumb_url,
-                closes_at=normalized.closes_at,
-                resolves_at=normalized.resolves_at,
-                resolution_source=normalized.resolution_source,
-                raw_json=normalized.raw_json,
+            if event is None:
+                continue
+            market = await session.scalar(
+                select(PredictionMarket).where(
+                    PredictionMarket.venue_id == venue.id,
+                    PredictionMarket.external_market_id == normalized.external_market_id,
+                )
             )
-            session.add(market)
-            await session.flush()
-        else:
-            market.status = normalized.status
-            market.label = normalized.label
-            market.question = normalized.question
-            market.image_thumb_url = normalized.image_thumb_url
-            market.closes_at = normalized.closes_at
-            market.resolves_at = normalized.resolves_at
-            market.resolution_source = normalized.resolution_source
-            market.raw_json = normalized.raw_json
-            market.updated_at = utcnow()
-        for outcome in normalized.outcomes:
-            await _upsert_outcome(session, market.id, outcome)
-        await _insert_snapshot(session, market, event, normalized.snapshot, normalized.raw_json)
-        count += 1
+            if market is None:
+                market = PredictionMarket(
+                    event_id=event.id,
+                    venue_id=venue.id,
+                    external_market_id=normalized.external_market_id,
+                    protocol=normalized.protocol,
+                    label=normalized.label,
+                    question=normalized.question,
+                    status=normalized.status,
+                    image_thumb_url=normalized.image_thumb_url,
+                    closes_at=normalized.closes_at,
+                    resolves_at=normalized.resolves_at,
+                    resolution_source=normalized.resolution_source,
+                    raw_json=normalized.raw_json,
+                )
+                session.add(market)
+                await session.flush()
+            else:
+                market.status = normalized.status
+                market.label = normalized.label
+                market.question = normalized.question
+                market.image_thumb_url = normalized.image_thumb_url
+                market.closes_at = normalized.closes_at
+                market.resolves_at = normalized.resolves_at
+                market.resolution_source = normalized.resolution_source
+                market.raw_json = normalized.raw_json
+                market.updated_at = utcnow()
+            for outcome in normalized.outcomes:
+                await _upsert_outcome(session, market.id, outcome)
+            await _insert_snapshot(session, market, event, normalized.snapshot, normalized.raw_json)
+            count += 1
     return count
+
+
+def _chunks(values: list[str], size: int) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
 
 
 async def refresh_market(

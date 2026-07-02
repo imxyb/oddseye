@@ -21,6 +21,7 @@ from app.db.models import (
     Venue,
 )
 from app.db.session import Base, create_sessionmaker, get_session_factory
+from app.services.ingestion import sync_event_markets
 from app.services.usage import DatabaseUsageRecorder
 from app.workers.ingest import _sync_markets, event_ids_for_sync
 
@@ -189,6 +190,22 @@ async def test_event_ids_for_sync_ignores_non_polymarket_priority_candidates(tmp
 
 
 @pytest.mark.asyncio
+async def test_sync_event_markets_chunks_codex_event_ids(tmp_path) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'chunk-events.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    async with sessionmaker() as session:
+        event_ids = [f"event-{index}" for index in range(201)]
+        client = FakeChunkingCodexClient()
+
+        count = await sync_event_markets(session, event_ids, client=client)
+
+    assert count == 0
+    assert client.calls == [event_ids[:200], event_ids[200:]]
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
 async def test_sync_markets_records_tier_job_and_usage_kind(tmp_path, monkeypatch) -> None:
     config_path = tmp_path / "app.yaml"
     config_path.write_text(
@@ -352,3 +369,16 @@ async def _market(
     session.add(market)
     await session.flush()
     return market
+
+
+class FakeChunkingCodexClient:
+    def __init__(self) -> None:
+        self.calls: list[list[str]] = []
+
+    async def event_markets(
+        self,
+        event_ids: list[str],
+        **_: object,
+    ) -> dict:
+        self.calls.append(event_ids)
+        return {"filterPredictionMarkets": {"results": []}}
