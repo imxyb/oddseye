@@ -1,0 +1,52 @@
+{
+  "data": {
+    "filterPredictionMarkets": {
+      "count": 1,
+      "results": [
+        {
+          "id": "row-btc-80000",
+          "eventLabel": "BTC above $80,000",
+          "status": "OPEN",
+          "market": {
+            "id": "market-btc-80000",
+            "eventId": "event-btc",
+            "protocol": "POLYMARKET",
+            "label": "BTC above $80,000",
+            "question": "Will BTC be above $80,000 on July 31, 2026?",
+            "imageThumbUrl": "https://example.com/btc-market.png",
+            "status": "OPEN",
+            "closesAt": "2026-07-31T00:00:00Z",
+            "resolvesAt": "2026-08-01T00:00:00Z"
+          },
+          "outcome0": {
+            "label": "Yes",
+            "bestAskCT": "0.61",
+            "bestBidCT": "0.59",
+            "spreadCT": "0.02",
+            "lastPriceCT": "0.60",
+            "liquidityCT": "14000",
+            "volumeUsd24h": "3000",
+            "priceChange24h": "0.03"
+          },
+          "outcome1": {
+            "label": "No",
+            "bestAskCT": "0.41",
+            "bestBidCT": "0.39",
+            "spreadCT": "0.02",
+            "lastPriceCT": "0.40",
+            "liquidityCT": "10000",
+            "volumeUsd24h": "2400",
+            "priceChange24h": "-0.03"
+          },
+          "competitiveScore24h": "65.5",
+          "trendingScore24h": "71.2",
+          "liquidityUsd": "24000",
+          "openInterestUsd": "32000",
+          "volumeUsd24h": "5400",
+          "trades24h": "86",
+          "priceCompetitiveness": "0.92"
+        }
+      ]
+    }
+  }
+}

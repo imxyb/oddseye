@@ -1,0 +1,70 @@
+{
+  "data": {
+    "predictionMarketBars": {
+      "marketId": "market-btc-80000",
+      "predictionMarket": {
+        "id": "market-btc-80000",
+        "label": "BTC above $80,000",
+        "question": "Will BTC be above $80,000 on July 31, 2026?",
+        "outcomeLabels": ["Yes", "No"],
+        "eventLabel": "BTC above $80,000"
+      },
+      "bars": [
+        {
+          "t": 1782864000,
+          "volumeUsd": "1200",
+          "trades": "22",
+          "uniqueTraders": "13",
+          "openInterestUsd": {
+            "o": "30000",
+            "h": "33000",
+            "l": "29500",
+            "c": "32000"
+          },
+          "outcome0": {
+            "volumeUsd": "700",
+            "priceCollateralToken": {
+              "o": "0.58",
+              "h": "0.62",
+              "l": "0.57",
+              "c": "0.60"
+            },
+            "bidCollateralToken": {
+              "o": "0.56",
+              "h": "0.60",
+              "l": "0.55",
+              "c": "0.59"
+            },
+            "askCollateralToken": {
+              "o": "0.60",
+              "h": "0.64",
+              "l": "0.59",
+              "c": "0.61"
+            }
+          },
+          "outcome1": {
+            "volumeUsd": "500",
+            "priceCollateralToken": {
+              "o": "0.42",
+              "h": "0.43",
+              "l": "0.38",
+              "c": "0.40"
+            },
+            "bidCollateralToken": {
+              "o": "0.40",
+              "h": "0.41",
+              "l": "0.36",
+              "c": "0.39"
+            },
+            "askCollateralToken": {
+              "o": "0.44",
+              "h": "0.45",
+              "l": "0.40",
+              "c": "0.41"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "data": {
+    "filterPredictionEvents": {
+      "count": 1,
+      "page": 0,
+      "results": [
+        {
+          "id": "event-btc",
+          "status": "OPEN",
+          "categories": ["crypto", "bitcoin"],
+          "marketCount": 1,
+          "trendingScore24h": "71.2",
+          "relevanceScore24h": "88.4",
+          "liquidityUsd": "24000",
+          "openInterestUsd": "32000",
+          "volumeUsd24h": "5400",
+          "trades24h": "86",
+          "uniqueTraders24h": "44",
+          "event": {
+            "id": "event-btc",
+            "protocol": "POLYMARKET",
+            "status": "OPEN",
+            "slug": "btc-above-80000-july-2026",
+            "question": "Will BTC be above $80,000 on July 31, 2026?",
+            "description": "Bitcoin threshold market fixture for Codex ingestion tests.",
+            "imageThumbUrl": "https://example.com/btc.png",
+            "venueUrl": "https://polymarket.example/event-btc",
+            "closesAt": "2026-07-31T00:00:00Z",
+            "resolvesAt": "2026-08-01T00:00:00Z"
+          },
+          "markets": [
+            {
+              "id": "market-btc-80000",
+              "label": "BTC above $80,000"
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
