@@ -6,6 +6,7 @@ from typing import Any
 import httpx
 
 from app.db.models import MarketSnapshot, PredictionMarket
+from app.normalizer.prediction_market import coerce_token_ids
 from app.strategies.crypto_v2.spec import PredictionOrderBookSnapshot
 
 
@@ -163,17 +164,13 @@ def _token_id_for_outcome(market: PredictionMarket, outcome: str) -> str | None:
     token_id = _token_id_from_mapping(raw.get(outcome_key))
     if token_id:
         return token_id
-    for key in ("outcomes", "tokens", "clobTokenIds"):
-        value = raw.get(key)
-        if isinstance(value, list):
+    for container in (raw, raw.get("market") if isinstance(raw.get("market"), dict) else {}):
+        for key in ("tokens", "clobTokenIds", "clob_token_ids", "tokenIds", "token_ids"):
+            value = container.get(key)
+            token_ids = coerce_token_ids(value)
             index = 0 if outcome == "YES" else 1
-            if len(value) > index:
-                if isinstance(value[index], dict):
-                    token_id = _token_id_from_mapping(value[index])
-                else:
-                    token_id = str(value[index]) if value[index] else None
-                if token_id:
-                    return token_id
+            if len(token_ids) > index:
+                return token_ids[index]
     return None
 
 

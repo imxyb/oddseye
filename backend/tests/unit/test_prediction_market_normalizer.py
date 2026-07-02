@@ -44,3 +44,45 @@ def test_normalize_market_extracts_resolution_source_from_codex_rules() -> None:
     assert normalized.resolution_source is not None
     assert normalized.resolution_source.startswith("The resolution source for this market is Binance")
     assert "BTC/USDT" in normalized.resolution_source
+
+
+def test_normalize_market_extracts_top_level_clob_token_ids() -> None:
+    normalized = normalize_market(
+        {
+            "id": "row-1",
+            "clobTokenIds": ["yes-token", "no-token"],
+            "market": {
+                "id": "market-1",
+                "eventId": "event-1",
+                "protocol": "POLYMARKET",
+                "question": "Will BTC be above $100,000?",
+                "status": "OPEN",
+            },
+            "outcome0": {"label": "Yes"},
+            "outcome1": {"label": "No"},
+        }
+    )
+
+    assert normalized.outcomes[0]["external_token_id"] == "yes-token"
+    assert normalized.outcomes[1]["external_token_id"] == "no-token"
+
+
+def test_normalize_market_extracts_json_encoded_clob_token_ids() -> None:
+    normalized = normalize_market(
+        {
+            "id": "row-1",
+            "market": {
+                "id": "market-1",
+                "eventId": "event-1",
+                "protocol": "POLYMARKET",
+                "question": "Will BTC be above $100,000?",
+                "status": "OPEN",
+                "clobTokenIds": '["yes-token", "no-token"]',
+            },
+            "outcome0": {"label": "Yes"},
+            "outcome1": {"label": "No"},
+        }
+    )
+
+    assert normalized.outcomes[0]["external_token_id"] == "yes-token"
+    assert normalized.outcomes[1]["external_token_id"] == "no-token"

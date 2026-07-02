@@ -56,10 +56,30 @@ def test_uses_snapshot_freshness_for_market_snapshot_orderbook() -> None:
         side="YES",
         market_quality_score=Decimal("80"),
         now=now,
-        config=ExecutionGateConfig(orderbook_seconds=15, market_snapshot_seconds=300),
+        config=ExecutionGateConfig(
+            orderbook_seconds=15,
+            market_snapshot_seconds=300,
+            require_clob_orderbook=False,
+        ),
     )
 
     assert "ORDERBOOK_STALE" not in decision.risk_flags
+
+
+def test_blocks_market_snapshot_orderbook_by_default() -> None:
+    now = datetime(2026, 7, 1, tzinfo=UTC)
+    decision = evaluate_execution_gate(
+        spec=_spec(now),
+        asset_snapshot=_asset_snapshot(now),
+        orderbook=_orderbook(now, source="market_snapshot"),
+        estimate=_estimate(),
+        side="YES",
+        market_quality_score=Decimal("80"),
+        now=now,
+    )
+
+    assert not decision.allowed
+    assert "ORDERBOOK_SOURCE_NOT_CLOB" in decision.risk_flags
 
 
 def test_blocks_wide_spread() -> None:
@@ -205,7 +225,7 @@ def _orderbook(
     bid: Decimal = Decimal("0.48"),
     spread: Decimal = Decimal("0.02"),
     depth: Decimal = Decimal("150"),
-    source: str = "market_snapshot",
+    source: str = "polymarket_clob",
 ) -> PredictionOrderBookSnapshot:
     return PredictionOrderBookSnapshot(
         market_id="m1",

@@ -20,6 +20,7 @@ from app.db.models import (
 )
 from app.db.session import Base, create_sessionmaker
 from app.services.signals import compute_crypto_signals, list_signals
+from app.strategies.crypto_v2.spec import PredictionOrderBookSnapshot
 
 
 @dataclass
@@ -64,8 +65,46 @@ class FakeMissingAssetMarketDataProvider:
         return None
 
 
+class FakeClobPredictionOrderBookService:
+    async def get_orderbook(self, market, snapshot, outcome: str) -> PredictionOrderBookSnapshot:
+        if outcome == "YES":
+            best_bid = snapshot.outcome0_best_bid
+            best_ask = snapshot.outcome0_best_ask
+            spread = snapshot.outcome0_spread
+            depth = snapshot.outcome0_liquidity or snapshot.liquidity_usd
+        else:
+            best_bid = snapshot.outcome1_best_bid
+            best_ask = snapshot.outcome1_best_ask
+            spread = snapshot.outcome1_spread
+            depth = snapshot.outcome1_liquidity or snapshot.liquidity_usd
+        return PredictionOrderBookSnapshot(
+            market_id=market.id,
+            token_id=f"{outcome.lower()}-token",
+            outcome=outcome,  # type: ignore[arg-type]
+            ts=snapshot.ts,
+            best_bid=best_bid,
+            best_ask=best_ask,
+            spread=spread,
+            mid=(best_bid + best_ask) / Decimal("2"),
+            best_bid_size=depth,
+            best_ask_size=depth,
+            depth_to_10_usd=depth,
+            depth_to_50_usd=depth,
+            depth_to_100_usd=depth,
+            tick_size=None,
+            min_order_size=None,
+            book_hash="test-book",
+            source="polymarket_clob",
+            raw_json={"source": "test"},
+        )
+
+
 @pytest.mark.asyncio
-async def test_compute_crypto_signals_v2_auto_fills_buy_order(tmp_path) -> None:
+async def test_compute_crypto_signals_v2_auto_fills_buy_order(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.signals.PredictionOrderBookService",
+        FakeClobPredictionOrderBookService,
+    )
     sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'v2-auto-buy.db'}")
     async with sessionmaker.bind.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -663,7 +702,14 @@ async def test_existing_position_exits_when_probability_deteriorates_from_entry_
 
 
 @pytest.mark.asyncio
-async def test_compute_crypto_signals_uses_asset_enrichment_for_codex_markets(tmp_path) -> None:
+async def test_compute_crypto_signals_uses_asset_enrichment_for_codex_markets(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.signals.PredictionOrderBookService",
+        FakeClobPredictionOrderBookService,
+    )
     sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'signal-enrichment.db'}")
     async with sessionmaker.bind.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -986,7 +1032,14 @@ async def test_compute_crypto_signals_holds_existing_same_side_position(tmp_path
 
 
 @pytest.mark.asyncio
-async def test_compute_crypto_signals_exits_existing_opposite_position(tmp_path) -> None:
+async def test_compute_crypto_signals_exits_existing_opposite_position(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.signals.PredictionOrderBookService",
+        FakeClobPredictionOrderBookService,
+    )
     sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'signal-exit.db'}")
     async with sessionmaker.bind.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

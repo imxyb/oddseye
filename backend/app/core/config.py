@@ -108,6 +108,7 @@ class CryptoThresholdV2MarketFiltersSection(BaseModel):
 
 class CryptoThresholdV2DataFreshnessSection(BaseModel):
     spot_seconds: int = 30
+    require_clob_orderbook: bool = True
     orderbook_seconds: int = 15
     market_snapshot_seconds: int = 300
     asset_snapshot_cache_seconds: int = 20

@@ -6,6 +6,7 @@ from typing import Any, AsyncIterator
 
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+import structlog
 
 from app.codex.client import CodexClient
 from app.core.config import get_settings
@@ -20,12 +21,20 @@ from app.db.models import (
     ApiUsageLedger,
     Venue,
 )
-from app.normalizer.prediction_market import normalize_event, normalize_market
+from app.normalizer.prediction_market import (
+    NormalizedMarket,
+    coerce_token_ids,
+    normalize_event,
+    normalize_market,
+    with_clob_token_ids,
+)
 from app.scoring.market_quality import QualityInputs, compute_market_quality
 from app.services.bootstrap import ensure_default_venues
+from app.services.polymarket_metadata import PolymarketMarketMetadataClient, PolymarketMarketTokens
 from app.services.usage import DatabaseUsageRecorder
 
 CODEX_MAX_EVENT_IDS = 200
+logger = structlog.get_logger(__name__)
 
 
 def create_codex_client() -> CodexClient:
@@ -37,6 +46,10 @@ def create_codex_client() -> CodexClient:
         timeout_seconds=settings.config.codex.timeout_seconds,
         max_retries=settings.config.codex.max_retries,
     )
+
+
+def create_polymarket_metadata_client() -> PolymarketMarketMetadataClient:
+    return PolymarketMarketMetadataClient()
 
 
 @asynccontextmanager
@@ -173,70 +186,135 @@ async def sync_event_markets(
     await ensure_default_venues(session)
     client = client or create_codex_client()
     count = 0
-    for event_id_chunk in _chunks(event_ids, CODEX_MAX_EVENT_IDS):
-        data = await client.event_markets(
-            event_id_chunk,
-            limit=settings.config.radar.max_markets_per_ingest,
-            job_run_id=job_run_id,
-            kind=kind,
-            metadata={"fetch_profile": settings.config.codex.fetch_profile},
-        )
-        rows = ((data.get("filterPredictionMarkets") or {}).get("results")) or []
-        for row in rows:
-            normalized = normalize_market(row)
-            if normalized.protocol.upper() != "POLYMARKET":
-                continue
-            venue = await _venue_for_protocol(session, normalized.protocol)
-            event = await session.scalar(
-                select(PredictionEvent).where(
-                    PredictionEvent.venue_id == venue.id,
-                    PredictionEvent.external_event_id == normalized.external_event_id,
-                )
+    metadata_client: PolymarketMarketMetadataClient | None = None
+    metadata_cache: dict[str, PolymarketMarketTokens | None] = {}
+    try:
+        for event_id_chunk in _chunks(event_ids, CODEX_MAX_EVENT_IDS):
+            data = await client.event_markets(
+                event_id_chunk,
+                limit=settings.config.radar.max_markets_per_ingest,
+                job_run_id=job_run_id,
+                kind=kind,
+                metadata={"fetch_profile": settings.config.codex.fetch_profile},
             )
-            if event is None:
-                continue
-            market = await session.scalar(
-                select(PredictionMarket).where(
-                    PredictionMarket.venue_id == venue.id,
-                    PredictionMarket.external_market_id == normalized.external_market_id,
+            rows = ((data.get("filterPredictionMarkets") or {}).get("results")) or []
+            for row in rows:
+                normalized = normalize_market(row)
+                if normalized.protocol.upper() != "POLYMARKET":
+                    continue
+                venue = await _venue_for_protocol(session, normalized.protocol)
+                event = await session.scalar(
+                    select(PredictionEvent).where(
+                        PredictionEvent.venue_id == venue.id,
+                        PredictionEvent.external_event_id == normalized.external_event_id,
+                    )
                 )
-            )
-            if market is None:
-                market = PredictionMarket(
-                    event_id=event.id,
-                    venue_id=venue.id,
-                    external_market_id=normalized.external_market_id,
-                    protocol=normalized.protocol,
-                    label=normalized.label,
-                    question=normalized.question,
-                    status=normalized.status,
-                    image_thumb_url=normalized.image_thumb_url,
-                    closes_at=normalized.closes_at,
-                    resolves_at=normalized.resolves_at,
-                    resolution_source=normalized.resolution_source,
-                    raw_json=normalized.raw_json,
+                if event is None:
+                    continue
+                market = await session.scalar(
+                    select(PredictionMarket).where(
+                        PredictionMarket.venue_id == venue.id,
+                        PredictionMarket.external_market_id == normalized.external_market_id,
+                    )
                 )
-                session.add(market)
-                await session.flush()
-            else:
-                market.status = normalized.status
-                market.label = normalized.label
-                market.question = normalized.question
-                market.image_thumb_url = normalized.image_thumb_url
-                market.closes_at = normalized.closes_at
-                market.resolves_at = normalized.resolves_at
-                market.resolution_source = normalized.resolution_source
-                market.raw_json = normalized.raw_json
-                market.updated_at = utcnow()
-            for outcome in normalized.outcomes:
-                await _upsert_outcome(session, market.id, outcome)
-            await _insert_snapshot(session, market, event, normalized.snapshot, normalized.raw_json)
-            count += 1
+                if _needs_clob_token_enrichment(normalized):
+                    existing_token_ids = await _existing_clob_token_ids(session, market)
+                    if existing_token_ids:
+                        normalized = with_clob_token_ids(normalized, existing_token_ids)
+                    else:
+                        if normalized.external_market_id not in metadata_cache:
+                            metadata_client = metadata_client or create_polymarket_metadata_client()
+                            metadata_cache[normalized.external_market_id] = await _safe_market_tokens(
+                                metadata_client,
+                                normalized.external_market_id,
+                                normalized.raw_json,
+                            )
+                        tokens = metadata_cache[normalized.external_market_id]
+                        if tokens is not None:
+                            normalized = with_clob_token_ids(
+                                normalized,
+                                tokens.token_ids,
+                                metadata_raw_json=tokens.raw_json,
+                            )
+                if market is None:
+                    market = PredictionMarket(
+                        event_id=event.id,
+                        venue_id=venue.id,
+                        external_market_id=normalized.external_market_id,
+                        protocol=normalized.protocol,
+                        label=normalized.label,
+                        question=normalized.question,
+                        status=normalized.status,
+                        image_thumb_url=normalized.image_thumb_url,
+                        closes_at=normalized.closes_at,
+                        resolves_at=normalized.resolves_at,
+                        resolution_source=normalized.resolution_source,
+                        raw_json=normalized.raw_json,
+                    )
+                    session.add(market)
+                    await session.flush()
+                else:
+                    market.status = normalized.status
+                    market.label = normalized.label
+                    market.question = normalized.question
+                    market.image_thumb_url = normalized.image_thumb_url
+                    market.closes_at = normalized.closes_at
+                    market.resolves_at = normalized.resolves_at
+                    market.resolution_source = normalized.resolution_source
+                    market.raw_json = normalized.raw_json
+                    market.updated_at = utcnow()
+                for outcome in normalized.outcomes:
+                    await _upsert_outcome(session, market.id, outcome)
+                await _insert_snapshot(session, market, event, normalized.snapshot, normalized.raw_json)
+                count += 1
+    finally:
+        if metadata_client is not None:
+            await metadata_client.aclose()
     return count
 
 
 def _chunks(values: list[str], size: int) -> list[list[str]]:
     return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+def _needs_clob_token_enrichment(normalized: NormalizedMarket) -> bool:
+    return any(not outcome.get("external_token_id") for outcome in normalized.outcomes[:2])
+
+
+async def _existing_clob_token_ids(
+    session: AsyncSession,
+    market: PredictionMarket | None,
+) -> list[str]:
+    if market is None:
+        return []
+    token_ids = coerce_token_ids((market.raw_json or {}).get("clobTokenIds"))
+    if len(token_ids) >= 2:
+        return token_ids[:2]
+    result = await session.execute(
+        select(MarketOutcome)
+        .where(MarketOutcome.market_id == market.id)
+        .order_by(MarketOutcome.outcome_index)
+    )
+    outcome_token_ids = [outcome.external_token_id for outcome in result.scalars().all()]
+    if len(outcome_token_ids) >= 2 and all(outcome_token_ids[:2]):
+        return [str(token_id) for token_id in outcome_token_ids[:2]]
+    return []
+
+
+async def _safe_market_tokens(
+    metadata_client: PolymarketMarketMetadataClient,
+    external_market_id: str,
+    raw_json: dict[str, Any],
+) -> PolymarketMarketTokens | None:
+    try:
+        return await metadata_client.get_market_tokens(external_market_id, raw_json)
+    except Exception as exc:
+        logger.warning(
+            "polymarket_metadata_token_enrichment_failed",
+            external_market_id=external_market_id,
+            error=str(exc),
+        )
+        return None
 
 
 async def refresh_market(

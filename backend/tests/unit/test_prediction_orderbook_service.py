@@ -10,8 +10,11 @@ from app.services.prediction_orderbook import PredictionOrderBookService
 
 
 class FakeClobClient:
+    def __init__(self) -> None:
+        self.token_ids: list[str] = []
+
     async def get_orderbook(self, token_id: str):
-        assert token_id == "yes-token"
+        self.token_ids.append(token_id)
         return {
             "best_bid": "0.41",
             "best_ask": "0.43",
@@ -60,3 +63,37 @@ async def test_orderbook_service_prefers_direct_clob_when_token_id_is_available(
     assert orderbook.best_ask == Decimal("0.43")
     assert orderbook.spread == Decimal("0.02")
     assert orderbook.depth_to_100_usd == Decimal("120")
+
+
+@pytest.mark.asyncio
+async def test_orderbook_service_reads_top_level_clob_token_ids() -> None:
+    snapshot = SimpleNamespace(
+        id=1,
+        ts=datetime(2026, 7, 1, tzinfo=UTC),
+        outcome0_best_bid=Decimal("0.39"),
+        outcome0_best_ask=Decimal("0.45"),
+        outcome0_spread=Decimal("0.06"),
+        outcome0_liquidity=Decimal("50"),
+        outcome1_best_bid=Decimal("0.55"),
+        outcome1_best_ask=Decimal("0.61"),
+        outcome1_spread=Decimal("0.06"),
+        outcome1_liquidity=Decimal("50"),
+        liquidity_usd=Decimal("100"),
+    )
+    market = SimpleNamespace(
+        id="market-1",
+        raw_json={
+            "clobTokenIds": ["yes-token", "no-token"],
+        },
+    )
+    clob_client = FakeClobClient()
+
+    orderbook = await PredictionOrderBookService(clob_client=clob_client).get_orderbook(
+        market,
+        snapshot,
+        "YES",
+    )
+
+    assert clob_client.token_ids == ["yes-token"]
+    assert orderbook.source == "polymarket_clob"
+    assert orderbook.token_id == "yes-token"

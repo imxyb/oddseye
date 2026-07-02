@@ -486,6 +486,10 @@ class CryptoThresholdV2Strategy:
                 "age_seconds": _age_seconds(asset_snapshot.ts),
             },
             "prediction_orderbook": {
+                "yes_source": yes_orderbook.source,
+                "no_source": no_orderbook.source,
+                "yes_token_id": yes_orderbook.token_id,
+                "no_token_id": no_orderbook.token_id,
                 "yes_best_bid": _str_or_none(yes_orderbook.best_bid),
                 "yes_best_ask": _str_or_none(yes_orderbook.best_ask),
                 "no_best_bid": _str_or_none(no_orderbook.best_bid),
@@ -542,6 +546,7 @@ def _best_gate(yes_gate: ExecutionDecision, no_gate: ExecutionDecision) -> Execu
 def _execution_gate_config(config: CryptoThresholdV2Section) -> ExecutionGateConfig:
     return ExecutionGateConfig(
         max_spread_ct=config.edge.max_spread_ct,
+        require_clob_orderbook=config.data_freshness.require_clob_orderbook,
         orderbook_seconds=config.data_freshness.orderbook_seconds,
         market_snapshot_seconds=config.data_freshness.market_snapshot_seconds,
         spot_seconds=config.data_freshness.spot_seconds,

@@ -33,6 +33,42 @@ def test_strategy_blocks_buy_when_existing_exposure_multiplier_exhausts_risk() -
     assert result.raw_json["sizing"]["existing_exposure_multiplier"] == 0.0
 
 
+def test_strategy_trace_records_orderbook_source_and_token_ids() -> None:
+    now = datetime.now(UTC)
+    result = CryptoThresholdV2Strategy().evaluate(
+        market=SimpleNamespace(id="market-1"),
+        event=SimpleNamespace(id="event-1"),
+        snapshot=SimpleNamespace(
+            id=1,
+            market_quality_score=Decimal("90"),
+        ),
+        spec=_spec(now),
+        asset_snapshot=_asset_snapshot(now),
+        yes_orderbook=_orderbook(
+            now,
+            "YES",
+            ask=Decimal("0.25"),
+            bid=Decimal("0.24"),
+            token_id="yes-token",
+        ),
+        no_orderbook=_orderbook(
+            now,
+            "NO",
+            ask=Decimal("0.74"),
+            bid=Decimal("0.73"),
+            token_id="no-token",
+        ),
+        current_position=None,
+        equity=Decimal("10000"),
+    )
+
+    orderbook = result.raw_json["prediction_orderbook"]
+    assert orderbook["yes_source"] == "polymarket_clob"
+    assert orderbook["no_source"] == "polymarket_clob"
+    assert orderbook["yes_token_id"] == "yes-token"
+    assert orderbook["no_token_id"] == "no-token"
+
+
 def _spec(now: datetime) -> CryptoMarketSpec:
     return CryptoMarketSpec(
         market_id="market-1",
@@ -82,10 +118,16 @@ def _asset_snapshot(now: datetime) -> CryptoAssetSnapshot:
     )
 
 
-def _orderbook(now: datetime, outcome: str, ask: Decimal, bid: Decimal) -> PredictionOrderBookSnapshot:
+def _orderbook(
+    now: datetime,
+    outcome: str,
+    ask: Decimal,
+    bid: Decimal,
+    token_id: str | None = None,
+) -> PredictionOrderBookSnapshot:
     return PredictionOrderBookSnapshot(
         market_id="market-1",
-        token_id=None,
+        token_id=token_id or f"{outcome.lower()}-token",
         outcome=outcome,  # type: ignore[arg-type]
         ts=now,
         best_bid=bid,
@@ -100,6 +142,6 @@ def _orderbook(now: datetime, outcome: str, ask: Decimal, bid: Decimal) -> Predi
         tick_size=None,
         min_order_size=None,
         book_hash=None,
-        source="test",
+        source="polymarket_clob",
         raw_json={},
     )

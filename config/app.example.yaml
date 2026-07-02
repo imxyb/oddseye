@@ -94,6 +94,7 @@ strategies:
       max_trade_price: 0.97
     data_freshness:
       spot_seconds: 30
+      require_clob_orderbook: true
       orderbook_seconds: 15
       market_snapshot_seconds: 300
       asset_snapshot_cache_seconds: 20

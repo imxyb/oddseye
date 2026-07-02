@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 import json
+from types import SimpleNamespace
 
 from httpx import AsyncClient, MockTransport, Request, Response
 import pytest
@@ -13,6 +14,7 @@ from app.core.config import get_settings
 from app.db.models import (
     ApiUsageLedger,
     JobRun,
+    MarketOutcome,
     ModelSignal,
     PaperAccount,
     PaperPosition,
@@ -206,6 +208,116 @@ async def test_sync_event_markets_chunks_codex_event_ids(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_sync_event_markets_enriches_missing_clob_token_ids(tmp_path, monkeypatch) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'clob-enrichment.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    metadata_client = FakePolymarketMetadataClient()
+    monkeypatch.setattr(
+        "app.services.ingestion.create_polymarket_metadata_client",
+        lambda: metadata_client,
+    )
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        session.add(venue)
+        await session.flush()
+        await _event(session, venue.id, "event-1", days=7)
+        await session.commit()
+
+        count = await sync_event_markets(
+            session,
+            ["event-1"],
+            client=FakeCodexMarketsClient(
+                [
+                    {
+                        "id": "row-1",
+                        "eventLabel": "BTC",
+                        "status": "OPEN",
+                        "market": {
+                            "id": "0xabc:Polymarket:0xdef:137",
+                            "eventId": "event-1",
+                            "protocol": "POLYMARKET",
+                            "label": "BTC above 80000",
+                            "question": "Will BTC be above $80,000?",
+                            "status": "OPEN",
+                            "closesAt": "2026-08-01T00:00:00Z",
+                            "resolvesAt": "2026-08-02T00:00:00Z",
+                        },
+                        "outcome0": {
+                            "label": "Yes",
+                            "bestAskCT": "0.61",
+                            "bestBidCT": "0.59",
+                        },
+                        "outcome1": {
+                            "label": "No",
+                            "bestAskCT": "0.41",
+                            "bestBidCT": "0.39",
+                        },
+                    }
+                ]
+            ),
+        )
+
+        market = await session.scalar(select(PredictionMarket))
+        outcomes = (
+            await session.execute(select(MarketOutcome).order_by(MarketOutcome.outcome_index))
+        ).scalars().all()
+
+    assert count == 1
+    assert metadata_client.calls == ["0xabc:Polymarket:0xdef:137"]
+    assert market is not None
+    assert market.raw_json["clobTokenIds"] == ["yes-token", "no-token"]
+    assert [outcome.external_token_id for outcome in outcomes] == ["yes-token", "no-token"]
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
+async def test_sync_event_markets_reuses_existing_clob_token_ids(tmp_path, monkeypatch) -> None:
+    sessionmaker = create_sessionmaker(f"sqlite+aiosqlite:///{tmp_path / 'clob-reuse.db'}")
+    async with sessionmaker.bind.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    metadata_client = FakePolymarketMetadataClient()
+    monkeypatch.setattr(
+        "app.services.ingestion.create_polymarket_metadata_client",
+        lambda: metadata_client,
+    )
+    async with sessionmaker() as session:
+        venue = Venue(code="POLYMARKET", name="Polymarket")
+        session.add(venue)
+        await session.flush()
+        event = await _event(session, venue.id, "event-1", days=7)
+        existing_market = await _market(
+            session,
+            venue.id,
+            event,
+            external_market_id="0xabc:Polymarket:0xdef:137",
+        )
+        existing_market.raw_json = {"clobTokenIds": ["old-yes-token", "old-no-token"]}
+        await session.commit()
+
+        count = await sync_event_markets(
+            session,
+            ["event-1"],
+            client=FakeCodexMarketsClient([_codex_market_row()]),
+        )
+
+        market = await session.scalar(select(PredictionMarket))
+        outcomes = (
+            await session.execute(select(MarketOutcome).order_by(MarketOutcome.outcome_index))
+        ).scalars().all()
+
+    assert count == 1
+    assert metadata_client.calls == []
+    assert market is not None
+    assert market.raw_json["clobTokenIds"] == ["old-yes-token", "old-no-token"]
+    assert [outcome.external_token_id for outcome in outcomes] == [
+        "old-yes-token",
+        "old-no-token",
+    ]
+    await sessionmaker.bind.dispose()
+
+
+@pytest.mark.asyncio
 async def test_sync_markets_records_tier_job_and_usage_kind(tmp_path, monkeypatch) -> None:
     config_path = tmp_path / "app.yaml"
     config_path.write_text(
@@ -382,3 +494,59 @@ class FakeChunkingCodexClient:
     ) -> dict:
         self.calls.append(event_ids)
         return {"filterPredictionMarkets": {"results": []}}
+
+
+def _codex_market_row() -> dict:
+    return {
+        "id": "row-1",
+        "eventLabel": "BTC",
+        "status": "OPEN",
+        "market": {
+            "id": "0xabc:Polymarket:0xdef:137",
+            "eventId": "event-1",
+            "protocol": "POLYMARKET",
+            "label": "BTC above 80000",
+            "question": "Will BTC be above $80,000?",
+            "status": "OPEN",
+            "closesAt": "2026-08-01T00:00:00Z",
+            "resolvesAt": "2026-08-02T00:00:00Z",
+        },
+        "outcome0": {
+            "label": "Yes",
+            "bestAskCT": "0.61",
+            "bestBidCT": "0.59",
+        },
+        "outcome1": {
+            "label": "No",
+            "bestAskCT": "0.41",
+            "bestBidCT": "0.39",
+        },
+    }
+
+
+class FakeCodexMarketsClient:
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+
+    async def event_markets(
+        self,
+        event_ids: list[str],
+        **_: object,
+    ) -> dict:
+        return {"filterPredictionMarkets": {"results": self.rows}}
+
+
+class FakePolymarketMetadataClient:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+
+    async def get_market_tokens(self, external_market_id: str, raw_json: dict):
+        self.calls.append(external_market_id)
+        return SimpleNamespace(
+            condition_id="0xabc",
+            token_ids=["yes-token", "no-token"],
+            raw_json={"id": "gamma-market-1"},
+        )
+
+    async def aclose(self) -> None:
+        pass

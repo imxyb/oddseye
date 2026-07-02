@@ -18,6 +18,7 @@ from app.strategies.crypto_v2.spec import (
 @dataclass(frozen=True)
 class ExecutionGateConfig:
     max_spread_ct: float = 0.04
+    require_clob_orderbook: bool = True
     orderbook_seconds: int = 15
     market_snapshot_seconds: int = 300
     spot_seconds: int = 30
@@ -70,6 +71,8 @@ def evaluate_execution_gate(
 
     if spec.protocol.upper() != "POLYMARKET":
         risk_flags.append("VENUE_NOT_POLYMARKET")
+    if config.require_clob_orderbook and orderbook.source != "polymarket_clob":
+        risk_flags.append("ORDERBOOK_SOURCE_NOT_CLOB")
     parser_min = (
         config.touch_min_parser_confidence
         if spec.market_type.startswith("hit_")

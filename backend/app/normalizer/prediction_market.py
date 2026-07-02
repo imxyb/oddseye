@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal
+import json
 import re
 from typing import Any
 
@@ -84,6 +85,68 @@ def outcome_token_id(outcome: dict[str, Any]) -> str | None:
     return None
 
 
+def clob_token_ids(row: dict[str, Any]) -> list[str]:
+    market = row.get("market") if isinstance(row.get("market"), dict) else {}
+    prediction_market = (
+        row.get("predictionMarket") if isinstance(row.get("predictionMarket"), dict) else {}
+    )
+    for container in (row, market, prediction_market):
+        if not isinstance(container, dict):
+            continue
+        for key in ("clobTokenIds", "clob_token_ids", "tokenIds", "token_ids"):
+            token_ids = coerce_token_ids(container.get(key))
+            if len(token_ids) >= 2:
+                return token_ids
+    return []
+
+
+def coerce_token_ids(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped:
+            return []
+        try:
+            return coerce_token_ids(json.loads(stripped))
+        except json.JSONDecodeError:
+            return [stripped]
+    if isinstance(value, list | tuple):
+        token_ids: list[str] = []
+        for item in value:
+            token_id = outcome_token_id(item) if isinstance(item, dict) else str(item) if item else None
+            if token_id:
+                token_ids.append(token_id)
+        return token_ids
+    return []
+
+
+def with_clob_token_ids(
+    normalized: NormalizedMarket,
+    token_ids: list[str],
+    metadata_raw_json: dict[str, Any] | None = None,
+) -> NormalizedMarket:
+    if len(token_ids) < 2:
+        return normalized
+    raw_json = dict(normalized.raw_json or {})
+    raw_json["clobTokenIds"] = token_ids[:2]
+    if metadata_raw_json:
+        raw_json["polymarketMetadata"] = metadata_raw_json
+    outcomes: list[dict[str, Any]] = []
+    for index, outcome in enumerate(normalized.outcomes):
+        enriched = dict(outcome)
+        token_id = token_ids[index] if len(token_ids) > index else None
+        if token_id and not enriched.get("external_token_id"):
+            enriched["external_token_id"] = token_id
+        outcome_raw = dict(enriched.get("raw_json") or {})
+        if token_id:
+            outcome_raw.setdefault("token_id", token_id)
+            outcome_raw.setdefault("clobTokenId", token_id)
+        enriched["raw_json"] = outcome_raw
+        outcomes.append(enriched)
+    return replace(normalized, outcomes=outcomes, raw_json=raw_json)
+
+
 def resolution_source(row: dict[str, Any], market: dict[str, Any]) -> str | None:
     prediction_market = row.get("predictionMarket") or {}
     for value in (
@@ -154,6 +217,7 @@ def normalize_event(row: dict[str, Any]) -> NormalizedEvent:
 
 def normalize_market(row: dict[str, Any]) -> NormalizedMarket:
     market = row.get("market") or row
+    row_token_ids = clob_token_ids(row)
     outcome0_label, outcome0_side = normalize_outcome_label(
         (row.get("outcome0") or {}).get("label"), 0
     )
@@ -184,7 +248,9 @@ def normalize_market(row: dict[str, Any]) -> NormalizedMarket:
         "competitive_score_24h": decimal_or_none(row.get("competitiveScore24h")),
         "trending_score_24h": decimal_or_none(row.get("trendingScore24h")),
     }
-    return NormalizedMarket(
+    outcome0_token_id = outcome_token_id(row.get("outcome0") or {}) or _token_id_at(row_token_ids, 0)
+    outcome1_token_id = outcome_token_id(row.get("outcome1") or {}) or _token_id_at(row_token_ids, 1)
+    normalized = NormalizedMarket(
         external_market_id=str(market.get("id") or row.get("id")),
         external_event_id=str(market.get("eventId") or row.get("eventId") or ""),
         protocol=str(market.get("protocol") or "UNKNOWN"),
@@ -200,17 +266,24 @@ def normalize_market(row: dict[str, Any]) -> NormalizedMarket:
                 "outcome_index": 0,
                 "label": outcome0_label,
                 "side": outcome0_side,
-                "external_token_id": outcome_token_id(row.get("outcome0") or {}),
+                "external_token_id": outcome0_token_id,
                 "raw_json": row.get("outcome0") or {},
             },
             {
                 "outcome_index": 1,
                 "label": outcome1_label,
                 "side": outcome1_side,
-                "external_token_id": outcome_token_id(row.get("outcome1") or {}),
+                "external_token_id": outcome1_token_id,
                 "raw_json": row.get("outcome1") or {},
             },
         ],
         snapshot=snapshot,
         raw_json=row,
     )
+    return with_clob_token_ids(normalized, row_token_ids) if len(row_token_ids) >= 2 else normalized
+
+
+def _token_id_at(token_ids: list[str], index: int) -> str | None:
+    if len(token_ids) <= index:
+        return None
+    return token_ids[index]
