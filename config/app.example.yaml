@@ -49,10 +49,10 @@ paper:
 jobs:
   categories_refresh_cron: "0 3 * * *"
   market_discovery_seconds: 300
-  hot_market_snapshot_seconds: 30
-  warm_market_snapshot_seconds: 30
+  hot_market_snapshot_seconds: 60
+  warm_market_snapshot_seconds: 60
   cold_market_snapshot_seconds: 600
-  signal_seconds: 60
+  signal_seconds: 120
   paper_mark_seconds: 60
   resolution_poll_seconds: 7200
 

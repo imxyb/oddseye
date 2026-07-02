@@ -65,10 +65,10 @@ class PaperSection(BaseModel):
 class JobsSection(BaseModel):
     categories_refresh_cron: str = "0 3 * * *"
     market_discovery_seconds: int = 300
-    hot_market_snapshot_seconds: int = 30
-    warm_market_snapshot_seconds: int = 30
+    hot_market_snapshot_seconds: int = 60
+    warm_market_snapshot_seconds: int = 60
     cold_market_snapshot_seconds: int = 600
-    signal_seconds: int = 60
+    signal_seconds: int = 120
     paper_mark_seconds: int = 60
     resolution_poll_seconds: int = 7_200
 

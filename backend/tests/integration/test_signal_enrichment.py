@@ -260,9 +260,12 @@ strategies:
             ).scalars().all()
 
         order_by_signal = {order.signal_id: order for order in orders}
+        assert list(order_by_signal) == [high_signal.id]
         assert order_by_signal[high_signal.id].status == "filled"
-        assert order_by_signal[low_signal.id].status == "rejected"
-        assert order_by_signal[low_signal.id].reason == "asset_horizon_position_limit_reached"
+        assert low_signal.raw_json["auto_order"] == {
+            "status": "skipped",
+            "reason": "asset_horizon_position_limit_reached",
+        }
     finally:
         get_settings.cache_clear()
         await sessionmaker.bind.dispose()

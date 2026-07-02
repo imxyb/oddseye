@@ -463,6 +463,25 @@ async def _asset_horizon_exposure_multiplier(
     exposure_limit = equity * Decimal(str(max_exposure_pct))
     if exposure_limit <= 0:
         return 0.0
+    current_exposure, _position_count = await _asset_horizon_portfolio_state(
+        session,
+        account_id=account_id,
+        spec=spec,
+        parser=parser,
+    )
+    remaining = exposure_limit - current_exposure
+    if remaining <= 0:
+        return 0.0
+    return float(min(Decimal("1"), remaining / exposure_limit))
+
+
+async def _asset_horizon_portfolio_state(
+    session: AsyncSession,
+    *,
+    account_id: str,
+    spec: CryptoMarketSpec,
+    parser: CryptoMarketSpecParserV2,
+) -> tuple[Decimal, int]:
     rows = await session.execute(
         select(PaperPosition, PredictionMarket, PredictionEvent)
         .join(PredictionMarket, PaperPosition.market_id == PredictionMarket.id)
@@ -475,6 +494,7 @@ async def _asset_horizon_exposure_multiplier(
     )
     target_bucket = _horizon_bucket(spec.window_end)
     current_exposure = Decimal("0")
+    position_count = 0
     for position, market, event in rows.all():
         parsed = parser.parse(market, event)
         if parsed.failed or parsed.spec is None:
@@ -483,10 +503,8 @@ async def _asset_horizon_exposure_multiplier(
             continue
         mark = position.mark_price or position.avg_price
         current_exposure += position.quantity * mark
-    remaining = exposure_limit - current_exposure
-    if remaining <= 0:
-        return 0.0
-    return float(min(Decimal("1"), remaining / exposure_limit))
+        position_count += 1
+    return current_exposure, position_count
 
 
 def _horizon_bucket(value: datetime) -> str:
@@ -526,6 +544,16 @@ async def _auto_execute_v2_signal(
     if quantity <= 0:
         _merge_signal_raw_json(model_signal, {"auto_order": {"status": "skipped", "reason": "no_quantity"}})
         return
+    if side == "BUY":
+        skip_reason = await _auto_buy_portfolio_skip_reason(
+            session,
+            account=account,
+            model_signal=model_signal,
+            notional=limit_price * quantity,
+        )
+        if skip_reason is not None:
+            _merge_signal_raw_json(model_signal, {"auto_order": {"status": "skipped", "reason": skip_reason}})
+            return
     response = await create_paper_order(
         session,
         PaperOrderInput(
@@ -540,6 +568,43 @@ async def _auto_execute_v2_signal(
         ),
     )
     _merge_signal_raw_json(model_signal, {"auto_order": response})
+
+
+async def _auto_buy_portfolio_skip_reason(
+    session: AsyncSession,
+    *,
+    account: PaperAccount,
+    model_signal: ModelSignal,
+    notional: Decimal,
+) -> str | None:
+    market = await session.get(PredictionMarket, model_signal.market_id)
+    if market is None:
+        return None
+    event = await session.get(PredictionEvent, market.event_id)
+    if event is None or "crypto" not in {str(category).lower() for category in event.categories or []}:
+        return None
+
+    strategy_config = get_settings().config.strategies.crypto_threshold_v2
+    parser = CryptoMarketSpecParserV2()
+    parsed = parser.parse(market, event)
+    if parsed.failed or parsed.spec is None:
+        return None
+
+    exposure, position_count = await _asset_horizon_portfolio_state(
+        session,
+        account_id=account.id,
+        spec=parsed.spec,
+        parser=parser,
+    )
+    max_positions = strategy_config.paper_execution.max_asset_horizon_positions
+    if max_positions > 0 and position_count >= max_positions:
+        return "asset_horizon_position_limit_reached"
+
+    equity = await _paper_equity(session, account)
+    exposure_limit = equity * Decimal(str(strategy_config.sizing.max_asset_horizon_exposure_pct))
+    if exposure_limit > 0 and exposure + notional > exposure_limit:
+        return "asset_horizon_exposure_limit_reached"
+    return None
 
 
 async def _auto_execute_v2_signals(
